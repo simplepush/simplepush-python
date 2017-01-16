@@ -36,6 +36,11 @@ def generate_payload(key, title, message, event=None, password=None):
     else:
         encryption_key = generate_encryption_key(password)
         iv = generate_iv()
+        iv_hex = ""
+        for c_idx in range(len(iv)):
+            iv_hex += "{:02x}".format(ord(iv[c_idx:c_idx+1]))
+        iv_hex = iv_hex.upper()
+
         iv_hex = "".join("{:02x}".format(ord(c)) for c in iv).upper()
 
         payload.update({"encrypted" : "true", "iv" : iv_hex})
@@ -56,9 +61,10 @@ def generate_iv():
     return Random.new().read(AES.block_size)
 
 def generate_encryption_key(password):
-    hex_str = hashlib.sha1(password + SALT).hexdigest()[0:32]
-    byte_str = str(bytearray.fromhex(hex_str))
-    return byte_str
+    salted_password = password + SALT
+    hex_str = hashlib.sha1(salted_password.encode('utf-8')).hexdigest()[0:32]
+    byte_str = bytearray.fromhex(hex_str)
+    return bytes(byte_str)
 
 def encrypt(encryption_key, iv, data):
     BS = 16
