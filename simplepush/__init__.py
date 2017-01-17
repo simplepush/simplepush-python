@@ -41,8 +41,6 @@ def generate_payload(key, title, message, event=None, password=None):
             iv_hex += "{:02x}".format(ord(iv[c_idx:c_idx+1]))
         iv_hex = iv_hex.upper()
 
-        iv_hex = "".join("{:02x}".format(ord(c)) for c in iv).upper()
-
         payload.update({"encrypted" : "true", "iv" : iv_hex})
 
         if title:
