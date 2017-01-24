@@ -10,19 +10,19 @@ def send(key, title, message, event=None):
     if not key or not message:
         raise ValueError("Key and message argument must be set")
 
-    payload = generate_payload(key, title, message, event, None)
+    payload = generate_payload(key, title, message, event, None, None)
 
     requests.post('https://api.simplepush.io/send', data = payload)
 
-def send_encrypted(key, password, title, message, event=None):
+def send_encrypted(key, password, salt, title, message, event=None):
     if not key or not message or not password:
         raise ValueError("Key, message and password arguments must be set")
 
-    payload = generate_payload(key, title, message, event, password)
+    payload = generate_payload(key, title, message, event, password, salt)
 
     requests.post('https://api.simplepush.io/send', data = payload)
 
-def generate_payload(key, title, message, event=None, password=None):
+def generate_payload(key, title, message, event=None, password=None, salt=None):
     payload = {"key" : key}
 
     if not password:
@@ -34,7 +34,7 @@ def generate_payload(key, title, message, event=None, password=None):
         if event:
             payload.update({"event" : event})
     else:
-        encryption_key = generate_encryption_key(password)
+        encryption_key = generate_encryption_key(password, salt)
         iv = generate_iv()
         iv_hex = ""
         for c_idx in range(len(iv)):
@@ -58,8 +58,12 @@ def generate_payload(key, title, message, event=None, password=None):
 def generate_iv():
     return Random.new().read(AES.block_size)
 
-def generate_encryption_key(password):
-    salted_password = password + SALT
+def generate_encryption_key(password, salt=None):
+    if salt:
+        salted_password = password + salt
+    else:
+        # Compatibility for older versions
+        salted_password = password + SALT
     hex_str = hashlib.sha1(salted_password.encode('utf-8')).hexdigest()[0:32]
     byte_str = bytearray.fromhex(hex_str)
     return bytes(byte_str)
