@@ -11,7 +11,7 @@ setup(
   license = 'MIT',
   install_requires=[
         'requests',
-        'pycrypto'
+        'cryptography'
       ],
   classifiers = [],
 )
