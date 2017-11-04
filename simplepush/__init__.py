@@ -1,12 +1,16 @@
+"""Library to interact with the Simplepush notification service."""
 import base64
+import hashlib
+
+import requests
 from Crypto import Random
 from Crypto.Cipher import AES
-import hashlib
-import requests
 
 SALT = "1789F0B8C4A051E5"
 
+
 def send(key, title, message, event=None):
+    """Send a plain-text message."""
     if not key or not message:
         raise ValueError("Key and message argument must be set")
 
@@ -14,7 +18,9 @@ def send(key, title, message, event=None):
 
     requests.post('https://api.simplepush.io/send', data = payload)
 
+
 def send_encrypted(key, password, salt, title, message, event=None):
+    """Send an encrypted message."""
     if not key or not message or not password:
         raise ValueError("Key, message and password arguments must be set")
 
@@ -22,17 +28,19 @@ def send_encrypted(key, password, salt, title, message, event=None):
 
     requests.post('https://api.simplepush.io/send', data = payload)
 
+
 def generate_payload(key, title, message, event=None, password=None, salt=None):
-    payload = {"key" : key}
+    """Generator for the payload."""
+    payload = {'key': key}
 
     if not password:
-        payload.update({"msg" : message})
+        payload.update({'msg': message})
 
         if title:
-            payload.update({"title" : title})
+            payload.update({'title': title})
 
         if event:
-            payload.update({"event" : event})
+            payload.update({'event': event})
     else:
         encryption_key = generate_encryption_key(password, salt)
         iv = generate_iv()
@@ -41,24 +49,28 @@ def generate_payload(key, title, message, event=None, password=None, salt=None):
             iv_hex += "{:02x}".format(ord(iv[c_idx:c_idx+1]))
         iv_hex = iv_hex.upper()
 
-        payload.update({"encrypted" : "true", "iv" : iv_hex})
+        payload.update({'encrypted': 'true', 'iv': iv_hex})
 
         if title:
             title = encrypt(encryption_key, iv, title)
-            payload.update({"title" : title})
+            payload.update({'title': title})
 
         if event:
-            payload.update({"event" : event})
+            payload.update({'event': event})
 
         message = encrypt(encryption_key, iv, message)
-        payload.update({"msg" : message})
+        payload.update({'msg': message})
 
     return payload
 
+
 def generate_iv():
+    """Generator for the initialization vector."""
     return Random.new().read(AES.block_size)
 
+
 def generate_encryption_key(password, salt=None):
+    """Create the encryption key."""
     if salt:
         salted_password = password + salt
     else:
@@ -68,9 +80,11 @@ def generate_encryption_key(password, salt=None):
     byte_str = bytearray.fromhex(hex_str)
     return bytes(byte_str)
 
+
 def encrypt(encryption_key, iv, data):
+    """Encrypt the payload."""
     BS = 16
-    pad = lambda s: s + (BS - len(s) % BS) * chr(BS - len(s) % BS) 
+    pad = lambda s: s + (BS - len(s) % BS) * chr(BS - len(s) % BS)
 
     data = pad(data)
 
