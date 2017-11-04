@@ -6,7 +6,11 @@ import requests
 from Crypto import Random
 from Crypto.Cipher import AES
 
-SALT = "1789F0B8C4A051E5"
+DEFAULT_TIMEOUT = 5
+
+SALT = '1789F0B8C4A051E5'
+
+SIMPLEPUSH_URL = 'https://api.simplepush.io/send'
 
 
 def send(key, title, message, event=None):
@@ -16,7 +20,7 @@ def send(key, title, message, event=None):
 
     payload = generate_payload(key, title, message, event, None, None)
 
-    requests.post('https://api.simplepush.io/send', data = payload)
+    requests.post(SIMPLEPUSH_URL, data=payload, timeout=DEFAULT_TIMEOUT)
 
 
 def send_encrypted(key, password, salt, title, message, event=None):
@@ -26,7 +30,7 @@ def send_encrypted(key, password, salt, title, message, event=None):
 
     payload = generate_payload(key, title, message, event, password, salt)
 
-    requests.post('https://api.simplepush.io/send', data = payload)
+    requests.post(SIMPLEPUSH_URL, data=payload, timeout=DEFAULT_TIMEOUT)
 
 
 def generate_payload(key, title, message, event=None, password=None, salt=None):
