@@ -13,6 +13,17 @@ SALT = '1789F0B8C4A051E5'
 
 SIMPLEPUSH_URL = 'https://api.simplepush.io/send'
 
+
+class BadRequest(Exception):
+    """Raised when API thinks that title or message are too long."""
+    pass
+
+
+class UnknownError(Exception):
+    """Raised for invalid responses."""
+    pass
+
+
 def send(key, title, message, event=None):
     """Send a plain-text message."""
     if not key or not message:
@@ -20,7 +31,8 @@ def send(key, title, message, event=None):
 
     payload = generate_payload(key, title, message, event, None, None)
 
-    requests.post(SIMPLEPUSH_URL, data=payload, timeout=DEFAULT_TIMEOUT)
+    r = requests.post(SIMPLEPUSH_URL, data=payload, timeout=DEFAULT_TIMEOUT)
+    handle_response(r)
 
 
 def send_encrypted(key, password, salt, title, message, event=None):
@@ -30,7 +42,19 @@ def send_encrypted(key, password, salt, title, message, event=None):
 
     payload = generate_payload(key, title, message, event, password, salt)
 
-    requests.post(SIMPLEPUSH_URL, data=payload, timeout=DEFAULT_TIMEOUT)
+    r = requests.post(SIMPLEPUSH_URL, data=payload, timeout=DEFAULT_TIMEOUT)
+    handle_response(r)
+
+
+def handle_response(response):
+    """Raise error if message was not successfully sent."""
+    if response.json()['status'] == 'BadRequest' and response.json()['message'] == 'Title or message too long':
+        raise BadRequest
+
+    if response.json()['status'] != 'OK':
+        raise UnknownError
+
+    response.raise_for_status()
 
 
 def generate_payload(key, title, message, event=None, password=None, salt=None):
