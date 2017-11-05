@@ -16,8 +16,8 @@ setup(
     license='MIT',
     install_requires=[
         'requests',
-        'pycrypto',
-    ],
+        'cryptography'
+      ],
     classifiers=[
         'Intended Audience :: Developers',
         'License :: OSI Approved :: MIT License',

@@ -1,10 +1,11 @@
 """Library to interact with the Simplepush notification service."""
 import base64
+import os
+from cryptography.hazmat.primitives import padding
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
 import hashlib
-
 import requests
-from Crypto import Random
-from Crypto.Cipher import AES
 
 DEFAULT_TIMEOUT = 5
 
@@ -93,7 +94,7 @@ def generate_payload(key, title, message, event=None, password=None, salt=None):
 
 def generate_iv():
     """Generator for the initialization vector."""
-    return Random.new().read(AES.block_size)
+    return os.urandom(algorithms.AES.block_size // 8)
 
 
 def generate_encryption_key(password, salt=None):
@@ -110,10 +111,8 @@ def generate_encryption_key(password, salt=None):
 
 def encrypt(encryption_key, iv, data):
     """Encrypt the payload."""
-    BS = 16
-    pad = lambda s: s + (BS - len(s) % BS) * chr(BS - len(s) % BS)
+    padder = padding.PKCS7(algorithms.AES.block_size).padder()
+    data = padder.update(data.encode()) + padder.finalize()
 
-    data = pad(data)
-
-    encrypted_data = AES.new(encryption_key, AES.MODE_CBC, IV=iv).encrypt(data)
-    return base64.urlsafe_b64encode(encrypted_data)
+    encryptor = Cipher(algorithms.AES(encryption_key), modes.CBC(iv), default_backend()).encryptor()
+    return base64.urlsafe_b64encode(encryptor.update(data) + encryptor.finalize())
