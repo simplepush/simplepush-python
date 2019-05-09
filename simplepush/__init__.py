@@ -112,7 +112,7 @@ def generate_encryption_key(password, salt=None):
 def encrypt(encryption_key, iv, data):
     """Encrypt the payload."""
     padder = padding.PKCS7(algorithms.AES.block_size).padder()
-    data = padder.update(data.encode()) + padder.finalize()
+    data = padder.update(data) + padder.finalize()
 
     encryptor = Cipher(algorithms.AES(encryption_key), modes.CBC(iv), default_backend()).encryptor()
     return base64.urlsafe_b64encode(encryptor.update(data) + encryptor.finalize())
