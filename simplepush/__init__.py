@@ -24,7 +24,7 @@ class UnknownError(Exception):
     pass
 
 
-def send(key, title, message, event=None):
+def send(key, message, title=None, event=None):
     """Send a plain-text message."""
     if not key or not message:
         raise ValueError("Key and message argument must be set")
@@ -35,7 +35,7 @@ def send(key, title, message, event=None):
     handle_response(r)
 
 
-def send_encrypted(key, password, salt, title, message, event=None):
+def send_encrypted(key, password, salt, message, title=None, event=None):
     """Send an encrypted message."""
     if not key or not message or not password:
         raise ValueError("Key, message and password arguments must be set")
