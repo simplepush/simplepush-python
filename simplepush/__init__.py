@@ -35,16 +35,16 @@ class FeedbackActionTimeout(Exception):
     pass
 
 
-def send(key, message, title=None, event=None, actions=None, feedbackCallback=None, feedbackCallbackTimeout=60):
+def send(key, message, title=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
     """Send a plain-text message."""
     r = _send(key, message, title, event, actions)
-    asyncio.run(handle_response(r, feedbackCallback, feedbackCallbackTimeout))
+    asyncio.run(handle_response(r, feedback_callback, feedback_callback_timeout))
 
 
-async def send_async(key, message, title=None, event=None, actions=None, feedbackCallback=None, feedbackCallbackTimeout=60):
+async def async_send(key, message, title=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
     """Send a plain-text message."""
     r = _send(key, message, title, event, actions)
-    await handle_response(r, feedbackCallback, feedbackCallbackTimeout)
+    await handle_response(r, feedback_callback, feedback_callback_timeout)
 
 
 def _send(key, message, title=None, event=None, actions=None):
@@ -58,16 +58,16 @@ def _send(key, message, title=None, event=None, actions=None):
     return requests.post(SIMPLEPUSH_URL + '/send', json=payload, timeout=DEFAULT_TIMEOUT)
 
 
-def send_encrypted(key, password, salt, message, title=None, event=None, actions=None, feedbackCallback=None, feedbackCallbackTimeout=60):
+def send_encrypted(key, password, salt, message, title=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
     """Send an encrypted message."""
     r = _send_encrypted(key, password, salt, message, title, event, actions)
-    asyncio.run(handle_response(r, feedbackCallback, feedbackCallbackTimeout))
+    asyncio.run(handle_response(r, feedback_callback, feedback_callback_timeout))
 
 
-async def send_encrypted_async(key, password, salt, message, title=None, event=None, actions=None, feedbackCallback=None, feedbackCallbackTimeout=60):
+async def async_send_encrypted(key, password, salt, message, title=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
     """Send an encrypted message."""
     r = _send_encrypted(key, password, salt, message, title, event, actions)
-    await handle_response(r, feedbackCallback, feedbackCallbackTimeout)
+    await handle_response(r, feedback_callback, feedback_callback_timeout)
 
 
 def _send_encrypted(key, password, salt, message, title=None, event=None, actions=None):
@@ -81,7 +81,7 @@ def _send_encrypted(key, password, salt, message, title=None, event=None, action
     return requests.post(SIMPLEPUSH_URL + '/send', json=payload, timeout=DEFAULT_TIMEOUT)
 
 
-async def handle_response(response, feedbackCallback, feedbackCallbackTimeout):
+async def handle_response(response, feedback_callback, feedback_callback_timeout):
     """Raise error if message was not successfully sent."""
     if response.json()['status'] == 'BadRequest' and response.json()['message'] == 'Title or message too long':
         raise BadRequest
@@ -89,9 +89,9 @@ async def handle_response(response, feedbackCallback, feedbackCallbackTimeout):
     if response.json()['status'] != 'OK':
         raise UnknownError
 
-    if 'feedbackId' in response.json() and feedbackCallback is not None:
-        feedbackId = response.json()['feedbackId']
-        await query_feedback_endpoint(feedbackId, feedbackCallback, feedbackCallbackTimeout)
+    if 'feedbackId' in response.json() and feedback_callback is not None:
+        feedback_id = response.json()['feedbackId']
+        await query_feedback_endpoint(feedback_id, feedback_callback, feedback_callback_timeout)
 
     response.raise_for_status()
 
@@ -174,25 +174,25 @@ def check_actions(actions):
                 raise ValueError("Get actions malformed")
 
 
-async def query_feedback_endpoint(feedbackId, callback, timeout):
+async def query_feedback_endpoint(feedback_id, callback, timeout):
     stop = False
     n = 0
     start = time.time()
 
     while not stop:
-        response = requests.get(SIMPLEPUSH_URL + '/1/feedback/' + feedbackId, timeout=DEFAULT_TIMEOUT)
+        response = requests.get(SIMPLEPUSH_URL + '/1/feedback/' + feedback_id, timeout=DEFAULT_TIMEOUT)
         responseJson = response.json()
         if response.ok and responseJson['success']:
             if responseJson['action_selected']:
                 stop = True
 
-                callback(responseJson['action_selected'], responseJson['action_selected_at'], responseJson['action_delivered_at'], feedbackId)
+                callback(responseJson['action_selected'], responseJson['action_selected_at'], responseJson['action_delivered_at'], feedback_id)
             else:
                 if timeout:
                     now = time.time()
                     if now > start + timeout:
                         stop = True
-                        raise FeedbackActionTimeout("Feedback Action ID: " + feedbackId)
+                        raise FeedbackActionTimeout("Feedback Action ID: " + feedback_id)
 
                 if n < 60:
                     # In the first minute query every second
