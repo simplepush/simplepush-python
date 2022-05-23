@@ -38,22 +38,22 @@ class FeedbackActionTimeout(Exception):
 def send(key, message, title=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
     """Send a plain-text message."""
     r = _send(key, message, title, event, actions)
-    asyncio.run(handle_response(r, feedback_callback, feedback_callback_timeout))
+    asyncio.run(_handle_response(r, feedback_callback, feedback_callback_timeout))
 
 
 async def async_send(key, message, title=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
     """Send a plain-text message."""
     r = _send(key, message, title, event, actions)
-    await handle_response(r, feedback_callback, feedback_callback_timeout)
+    await _handle_response(r, feedback_callback, feedback_callback_timeout)
 
 
 def _send(key, message, title=None, event=None, actions=None):
     if not key or not message:
         raise ValueError("Key and message argument must be set")
 
-    check_actions(actions)
+    _check_actions(actions)
 
-    payload = generate_payload(key, title, message, event, actions, None, None)
+    payload = _generate_payload(key, title, message, event, actions, None, None)
 
     return requests.post(SIMPLEPUSH_URL + '/send', json=payload, timeout=DEFAULT_TIMEOUT)
 
@@ -61,27 +61,27 @@ def _send(key, message, title=None, event=None, actions=None):
 def send_encrypted(key, password, salt, message, title=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
     """Send an encrypted message."""
     r = _send_encrypted(key, password, salt, message, title, event, actions)
-    asyncio.run(handle_response(r, feedback_callback, feedback_callback_timeout))
+    asyncio.run(_handle_response(r, feedback_callback, feedback_callback_timeout))
 
 
 async def async_send_encrypted(key, password, salt, message, title=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
     """Send an encrypted message."""
     r = _send_encrypted(key, password, salt, message, title, event, actions)
-    await handle_response(r, feedback_callback, feedback_callback_timeout)
+    await _handle_response(r, feedback_callback, feedback_callback_timeout)
 
 
 def _send_encrypted(key, password, salt, message, title=None, event=None, actions=None):
     if not key or not message or not password:
         raise ValueError("Key, message and password arguments must be set")
 
-    check_actions(actions)
+    _check_actions(actions)
 
-    payload = generate_payload(key, title, message, event, actions, password, salt)
+    payload = _generate_payload(key, title, message, event, actions, password, salt)
 
     return requests.post(SIMPLEPUSH_URL + '/send', json=payload, timeout=DEFAULT_TIMEOUT)
 
 
-async def handle_response(response, feedback_callback, feedback_callback_timeout):
+async def _handle_response(response, feedback_callback, feedback_callback_timeout):
     """Raise error if message was not successfully sent."""
     if response.json()['status'] == 'BadRequest' and response.json()['message'] == 'Title or message too long':
         raise BadRequest
@@ -91,12 +91,12 @@ async def handle_response(response, feedback_callback, feedback_callback_timeout
 
     if 'feedbackId' in response.json() and feedback_callback is not None:
         feedback_id = response.json()['feedbackId']
-        await query_feedback_endpoint(feedback_id, feedback_callback, feedback_callback_timeout)
+        await _query_feedback_endpoint(feedback_id, feedback_callback, feedback_callback_timeout)
 
     response.raise_for_status()
 
 
-def generate_payload(key, title, message, event=None, actions=None, password=None, salt=None):
+def _generate_payload(key, title, message, event=None, actions=None, password=None, salt=None):
     """Generator for the payload."""
     payload = {'key': key}
 
@@ -109,8 +109,8 @@ def generate_payload(key, title, message, event=None, actions=None, password=Non
         if event:
             payload.update({'event': event})
     else:
-        encryption_key = generate_encryption_key(password, salt)
-        iv = generate_iv()
+        encryption_key = _generate_encryption_key(password, salt)
+        iv = _generate_iv()
         iv_hex = ""
         for c_idx in range(len(iv)):
             iv_hex += "{:02x}".format(ord(iv[c_idx:c_idx+1]))
@@ -119,13 +119,13 @@ def generate_payload(key, title, message, event=None, actions=None, password=Non
         payload.update({'encrypted': 'true', 'iv': iv_hex})
 
         if title:
-            title = encrypt(encryption_key, iv, title)
+            title = _encrypt(encryption_key, iv, title)
             payload.update({'title': title})
 
         if event:
             payload.update({'event': event})
 
-        message = encrypt(encryption_key, iv, message)
+        message = _encrypt(encryption_key, iv, message)
         payload.update({'msg': message})
 
     if actions:
@@ -134,12 +134,12 @@ def generate_payload(key, title, message, event=None, actions=None, password=Non
     return payload
 
 
-def generate_iv():
+def _generate_iv():
     """Generator for the initialization vector."""
     return os.urandom(algorithms.AES.block_size // 8)
 
 
-def generate_encryption_key(password, salt=None):
+def _generate_encryption_key(password, salt=None):
     """Create the encryption key."""
     if salt:
         salted_password = password + salt
@@ -151,7 +151,7 @@ def generate_encryption_key(password, salt=None):
     return bytes(byte_str)
 
 
-def encrypt(encryption_key, iv, data):
+def _encrypt(encryption_key, iv, data):
     """Encrypt the payload."""
     padder = padding.PKCS7(algorithms.AES.block_size).padder()
     data = padder.update(data.encode()) + padder.finalize()
@@ -160,7 +160,7 @@ def encrypt(encryption_key, iv, data):
     return base64.urlsafe_b64encode(encryptor.update(data) + encryptor.finalize())
 
 
-def check_actions(actions):
+def _check_actions(actions):
     """Raise error if actions can't be parsed"""
     if not isinstance(actions, list) and actions is not None:
         raise ValueError("Actions malformed")
@@ -174,7 +174,7 @@ def check_actions(actions):
                 raise ValueError("Get actions malformed")
 
 
-async def query_feedback_endpoint(feedback_id, callback, timeout):
+async def _query_feedback_endpoint(feedback_id, callback, timeout):
     stop = False
     n = 0
     start = time.time()
