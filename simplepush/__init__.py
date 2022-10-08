@@ -6,10 +6,10 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 import hashlib
 import requests
-import json
 import aiohttp
 import asyncio
 import time
+from typing import Dict
 
 DEFAULT_TIMEOUT = 5
 
@@ -35,51 +35,55 @@ class FeedbackActionTimeout(Exception):
     pass
 
 
-def send(key, message, title=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
+def send(key, message, title=None, attachments = None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
     """Send a plain-text message."""
     if not key or not message:
         raise ValueError("Key and message argument must be set")
 
     _check_actions(actions)
+    _check_attachments(attachments)
 
-    payload = _generate_payload(key, title, message, event, actions, None, None)
+    payload = _generate_payload(key, title, message, attachments, event, actions, None, None)
 
     r = requests.post(SIMPLEPUSH_URL + '/send', json=payload, timeout=DEFAULT_TIMEOUT)
     asyncio.run(_handle_response(r, feedback_callback, feedback_callback_timeout))
 
-def send_encrypted(key, password, salt, message, title=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
+def send_encrypted(key, password, salt, message, title=None, attachments = None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
     """Send an encrypted message."""
     if not key or not message or not password:
         raise ValueError("Key, message and password arguments must be set")
 
     _check_actions(actions)
+    _check_attachments(attachments)
 
-    payload = _generate_payload(key, title, message, event, actions, password, salt)
+    payload = _generate_payload(key, title, message, attachments, event, actions, password, salt)
 
     r = requests.post(SIMPLEPUSH_URL + '/send', json=payload, timeout=DEFAULT_TIMEOUT)
     asyncio.run(_handle_response(r, feedback_callback, feedback_callback_timeout))
 
-async def async_send(key, message, title=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
+async def async_send(key, message, title=None, attachments=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
     """Send a plain-text message."""
     if not key or not message:
         raise ValueError("Key and message argument must be set")
 
     _check_actions(actions)
+    _check_attachments(attachments)
 
-    payload = _generate_payload(key, title, message, event, actions, None, None)
+    payload = _generate_payload(key, title, message, attachments, event, actions, None, None)
 
     async with aiohttp.ClientSession(raise_for_status=True) as session:
         async with session.post(SIMPLEPUSH_URL + '/send', json=payload) as resp:
             return await _handle_response_aio(await resp.json(), feedback_callback, feedback_callback_timeout)
 
-async def async_send_encrypted(key, password, salt, message, title=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
+async def async_send_encrypted(key, password, salt, message, title=None, attachments=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
     """Send an encrypted message."""
     if not key or not message or not password:
         raise ValueError("Key, message and password arguments must be set")
 
     _check_actions(actions)
+    _check_attachments(attachments)
 
-    payload = _generate_payload(key, title, message, event, actions, password, salt)
+    payload = _generate_payload(key, title, message, attachments, event, actions, password, salt)
 
     async with aiohttp.ClientSession(raise_for_status=True) as session:
         async with session.post(SIMPLEPUSH_URL + '/send', json=payload) as resp:
@@ -111,7 +115,7 @@ async def _handle_response_aio(json_response, feedback_callback, feedback_callba
         feedback_id = json_response['feedbackId']
         await _query_feedback_endpoint(feedback_id, feedback_callback, feedback_callback_timeout)
 
-def _generate_payload(key, title, message, event=None, actions=None, password=None, salt=None):
+def _generate_payload(key, title, message, attachments=None, event=None, actions=None, password=None, salt=None):
     """Generator for the payload."""
     payload = {'key': key}
 
@@ -123,6 +127,9 @@ def _generate_payload(key, title, message, event=None, actions=None, password=No
 
         if event:
             payload.update({'event': event})
+
+        if attachments:
+            payload.update({'attachments': attachments})
     else:
         encryption_key = _generate_encryption_key(password, salt)
         iv = _generate_iv()
@@ -142,6 +149,16 @@ def _generate_payload(key, title, message, event=None, actions=None, password=No
 
         message = _encrypt(encryption_key, iv, message)
         payload.update({'msg': message})
+
+        if attachments:
+            attachments_encrypted = []
+            for attachment in attachments:
+                if isinstance(attachment, Dict) and 'thumbnail' in attachment.keys() and 'video' in attachment.keys():
+                    attachments_encrypted.append({'thumbnail' : _encrypt(encryption_key, iv, attachment['thumbnail']), 'video' : _encrypt(encryption_key, iv, attachment['video'])})
+                elif isinstance(attachment, str):
+                    attachments_encrypted.append(_encrypt(encryption_key, iv, attachment))
+
+            payload.update({'attachments': attachments_encrypted})
 
     if actions:
         payload.update({'actions': actions})
@@ -188,6 +205,9 @@ def _check_actions(actions):
             if not all('name' in el.keys() and 'url' in el.keys() for el in actions):
                 raise ValueError("Get actions malformed")
 
+def _check_attachments(attachments):
+    if not isinstance(attachments, list) and attachments is not None:
+        raise ValueError("Attachments malformed")
 
 async def _query_feedback_endpoint(feedback_id, callback, timeout):
     stop = False

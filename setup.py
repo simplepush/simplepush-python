@@ -16,7 +16,8 @@ setup(
     license='MIT',
     install_requires=[
         'requests',
-        'cryptography'
+        'cryptography',
+        'aiohttp'
       ],
     classifiers=[
         'Intended Audience :: Developers',
