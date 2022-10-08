@@ -17,7 +17,6 @@ SALT = '1789F0B8C4A051E5'
 
 SIMPLEPUSH_URL = 'https://api.simplepush.io'
 
-
 class BadRequest(Exception):
     """Raised when API thinks that title or message are too long."""
     pass
@@ -43,10 +42,10 @@ def send(key, message, title=None, attachments = None, event=None, actions=None,
     _check_actions(actions)
     _check_attachments(attachments)
 
-    payload = _generate_payload(key, title, message, attachments, event, actions, None, None)
+    payload, actions, actions_encrypted = _generate_payload(key, title, message, attachments, event, actions, None, None)
 
     r = requests.post(SIMPLEPUSH_URL + '/send', json=payload, timeout=DEFAULT_TIMEOUT)
-    asyncio.run(_handle_response(r, feedback_callback, feedback_callback_timeout))
+    asyncio.run(_handle_response(r, actions, actions_encrypted, feedback_callback, feedback_callback_timeout))
 
 def send_encrypted(key, password, salt, message, title=None, attachments = None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
     """Send an encrypted message."""
@@ -56,10 +55,10 @@ def send_encrypted(key, password, salt, message, title=None, attachments = None,
     _check_actions(actions)
     _check_attachments(attachments)
 
-    payload = _generate_payload(key, title, message, attachments, event, actions, password, salt)
+    payload, actions, actions_encrypted = _generate_payload(key, title, message, attachments, event, actions, password, salt)
 
     r = requests.post(SIMPLEPUSH_URL + '/send', json=payload, timeout=DEFAULT_TIMEOUT)
-    asyncio.run(_handle_response(r, feedback_callback, feedback_callback_timeout))
+    asyncio.run(_handle_response(r, actions, actions_encrypted, feedback_callback, feedback_callback_timeout))
 
 async def async_send(key, message, title=None, attachments=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
     """Send a plain-text message."""
@@ -69,11 +68,11 @@ async def async_send(key, message, title=None, attachments=None, event=None, act
     _check_actions(actions)
     _check_attachments(attachments)
 
-    payload = _generate_payload(key, title, message, attachments, event, actions, None, None)
+    payload, actions, actions_encrypted = _generate_payload(key, title, message, attachments, event, actions, None, None)
 
     async with aiohttp.ClientSession(raise_for_status=True) as session:
         async with session.post(SIMPLEPUSH_URL + '/send', json=payload) as resp:
-            return await _handle_response_aio(await resp.json(), feedback_callback, feedback_callback_timeout)
+            return await _handle_response_aio(await resp.json(), actions, actions_encrypted, feedback_callback, feedback_callback_timeout)
 
 async def async_send_encrypted(key, password, salt, message, title=None, attachments=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
     """Send an encrypted message."""
@@ -83,13 +82,13 @@ async def async_send_encrypted(key, password, salt, message, title=None, attachm
     _check_actions(actions)
     _check_attachments(attachments)
 
-    payload = _generate_payload(key, title, message, attachments, event, actions, password, salt)
+    payload, actions, actions_encrypted = _generate_payload(key, title, message, attachments, event, actions, password, salt)
 
     async with aiohttp.ClientSession(raise_for_status=True) as session:
         async with session.post(SIMPLEPUSH_URL + '/send', json=payload) as resp:
-            return await _handle_response_aio(await resp.json(), feedback_callback, feedback_callback_timeout)
+            return await _handle_response_aio(await resp.json(), actions, actions_encrypted, feedback_callback, feedback_callback_timeout)
 
-async def _handle_response(response, feedback_callback, feedback_callback_timeout):
+async def _handle_response(response, actions, actions_encrypted, feedback_callback, feedback_callback_timeout):
     """Raise error if message was not successfully sent."""
     if response.json()['status'] == 'BadRequest' and response.json()['message'] == 'Title or message too long':
         raise BadRequest
@@ -99,11 +98,11 @@ async def _handle_response(response, feedback_callback, feedback_callback_timeou
 
     if 'feedbackId' in response.json() and feedback_callback is not None:
         feedback_id = response.json()['feedbackId']
-        await _query_feedback_endpoint(feedback_id, feedback_callback, feedback_callback_timeout)
+        await _query_feedback_endpoint(feedback_id, actions, actions_encrypted, feedback_callback, feedback_callback_timeout)
 
     response.raise_for_status()
 
-async def _handle_response_aio(json_response, feedback_callback, feedback_callback_timeout):
+async def _handle_response_aio(json_response, actions, actions_encrypted, feedback_callback, feedback_callback_timeout):
     """Raise error if message was not successfully sent."""
     if json_response['status'] == 'BadRequest' and json_response['message'] == 'Title or message too long':
         raise BadRequest
@@ -113,11 +112,12 @@ async def _handle_response_aio(json_response, feedback_callback, feedback_callba
 
     if 'feedbackId' in json_response and feedback_callback is not None:
         feedback_id = json_response['feedbackId']
-        await _query_feedback_endpoint(feedback_id, feedback_callback, feedback_callback_timeout)
+        await _query_feedback_endpoint(feedback_id, actions, actions_encrypted, feedback_callback, feedback_callback_timeout)
 
 def _generate_payload(key, title, message, attachments=None, event=None, actions=None, password=None, salt=None):
     """Generator for the payload."""
     payload = {'key': key}
+    actions_encrypted = None
 
     if not password:
         payload.update({'msg': message})
@@ -127,6 +127,9 @@ def _generate_payload(key, title, message, attachments=None, event=None, actions
 
         if event:
             payload.update({'event': event})
+
+        if actions:
+            payload.update({'actions': actions})
 
         if attachments:
             payload.update({'attachments': attachments})
@@ -150,6 +153,18 @@ def _generate_payload(key, title, message, attachments=None, event=None, actions
         message = _encrypt(encryption_key, iv, message)
         payload.update({'msg': message})
 
+        if actions:
+            actions_encrypted = []
+            for action in actions:
+                if isinstance(action, str):
+                    # Feedback Action
+                    actions_encrypted.append(_encrypt(encryption_key, iv, action))
+                elif isinstance(action, Dict) and 'name' in action.keys() and 'url' in action.keys():
+                    # GET Action
+                    actions_encrypted.append({'name' : _encrypt(encryption_key, iv, action['name']), 'url' : _encrypt(encryption_key, iv, action['url'])})
+
+            payload.update({'actions': actions_encrypted})
+
         if attachments:
             attachments_encrypted = []
             for attachment in attachments:
@@ -160,10 +175,7 @@ def _generate_payload(key, title, message, attachments=None, event=None, actions
 
             payload.update({'attachments': attachments_encrypted})
 
-    if actions:
-        payload.update({'actions': actions})
-
-    return payload
+    return payload, actions, actions_encrypted
 
 
 def _generate_iv():
@@ -209,7 +221,7 @@ def _check_attachments(attachments):
     if not isinstance(attachments, list) and attachments is not None:
         raise ValueError("Attachments malformed")
 
-async def _query_feedback_endpoint(feedback_id, callback, timeout):
+async def _query_feedback_endpoint(feedback_id, actions, actions_encrypted, callback, timeout):
     stop = False
     n = 0
     start = time.time()
@@ -221,8 +233,14 @@ async def _query_feedback_endpoint(feedback_id, callback, timeout):
                 if resp.ok and json['success']:
                     if json['action_selected']:
                         stop = True
-
-                        callback(json['action_selected'], json['action_selected_at'], json['action_delivered_at'], feedback_id)
+                        
+                        if actions_encrypted is None:
+                            callback(json['action_selected'], json['action_selected_at'], json['action_delivered_at'], feedback_id)
+                        else:
+                            encrypted_action_selected = json['action_selected']
+                            idx = actions_encrypted.index(encrypted_action_selected)
+                            action_selected = actions[idx]
+                            callback(action_selected, json['action_selected_at'], json['action_delivered_at'], feedback_id)
                     else:
                         if timeout:
                             now = time.time()
