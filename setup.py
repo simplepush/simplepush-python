@@ -4,14 +4,13 @@ from distutils.core import setup
 setup(
     name='simplepush',
     packages=['simplepush'],
-    version='1.2.2',
-    description='Simplepush python library',
+    version='2.0.0',
+    description='Simplepush Python Library',
     author='Timm Schaeuble',
     author_email='contact@simplepush.io',
     url='https://simplepush.io',
     keywords=[
-        'actionable notifications', 'push', 'notification', 'android', 'logging', 'app', 'simple',
-        'encrypted'
+        'actionable notifications', 'push', 'notification', 'android', 'ios', 'encryption'
     ],
     license='MIT',
     install_requires=[

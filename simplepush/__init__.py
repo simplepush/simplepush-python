@@ -34,23 +34,16 @@ class FeedbackActionTimeout(Exception):
     pass
 
 
-def send(key, message, title=None, attachments = None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
+def send(key, message, title=None, password=None, salt=None, attachments = None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
     """Send a plain-text message."""
     if not key or not message:
         raise ValueError("Key and message argument must be set")
 
-    _check_actions(actions)
-    _check_attachments(attachments)
+    if password and not salt:
+        raise ValueError("Salt is missing")
 
-    payload, actions, actions_encrypted = _generate_payload(key, title, message, attachments, event, actions, None, None)
-
-    r = requests.post(SIMPLEPUSH_URL + '/send', json=payload, timeout=DEFAULT_TIMEOUT)
-    asyncio.run(_handle_response(r, actions, actions_encrypted, feedback_callback, feedback_callback_timeout))
-
-def send_encrypted(key, password, salt, message, title=None, attachments = None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
-    """Send an encrypted message."""
-    if not key or not message or not password:
-        raise ValueError("Key, message and password arguments must be set")
+    if not password and salt:
+        raise ValueError("Password is missing")
 
     _check_actions(actions)
     _check_attachments(attachments)
@@ -60,24 +53,16 @@ def send_encrypted(key, password, salt, message, title=None, attachments = None,
     r = requests.post(SIMPLEPUSH_URL + '/send', json=payload, timeout=DEFAULT_TIMEOUT)
     asyncio.run(_handle_response(r, actions, actions_encrypted, feedback_callback, feedback_callback_timeout))
 
-async def async_send(key, message, title=None, attachments=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
+async def async_send(key, message, title=None, password=None, salt=None, attachments=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
     """Send a plain-text message."""
     if not key or not message:
         raise ValueError("Key and message argument must be set")
 
-    _check_actions(actions)
-    _check_attachments(attachments)
+    if password and not salt:
+        raise ValueError("Salt is missing")
 
-    payload, actions, actions_encrypted = _generate_payload(key, title, message, attachments, event, actions, None, None)
-
-    async with aiohttp.ClientSession(raise_for_status=True) as session:
-        async with session.post(SIMPLEPUSH_URL + '/send', json=payload) as resp:
-            return await _handle_response_aio(await resp.json(), actions, actions_encrypted, feedback_callback, feedback_callback_timeout)
-
-async def async_send_encrypted(key, password, salt, message, title=None, attachments=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
-    """Send an encrypted message."""
-    if not key or not message or not password:
-        raise ValueError("Key, message and password arguments must be set")
+    if not password and salt:
+        raise ValueError("Password is missing")
 
     _check_actions(actions)
     _check_attachments(attachments)
