@@ -53,7 +53,7 @@ def send(key, message, title=None, password=None, salt=None, attachments = None,
     r = requests.post(SIMPLEPUSH_URL + '/send', json=payload, timeout=DEFAULT_TIMEOUT)
     asyncio.run(_handle_response(r, actions, actions_encrypted, feedback_callback, feedback_callback_timeout))
 
-async def async_send(key, message, title=None, password=None, salt=None, attachments=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60):
+async def async_send(key, message, title=None, password=None, salt=None, attachments=None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60, aiohttp_session=None):
     """Send a plain-text message."""
     if not key or not message:
         raise ValueError("Key and message argument must be set")
@@ -68,10 +68,14 @@ async def async_send(key, message, title=None, password=None, salt=None, attachm
     _check_attachments(attachments)
 
     payload, actions, actions_encrypted = _generate_payload(key, title, message, attachments, event, actions, password, salt)
-
-    async with aiohttp.ClientSession(raise_for_status=True) as session:
-        async with session.post(SIMPLEPUSH_URL + '/send', json=payload) as resp:
-            return await _handle_response_aio(await resp.json(), actions, actions_encrypted, feedback_callback, feedback_callback_timeout)
+    
+    if aiohttp_session:
+        async with aiohttp_session.post(SIMPLEPUSH_URL + '/send', json=payload) as resp:
+            return await _handle_response_aio(await resp.json(), actions, actions_encrypted, feedback_callback, feedback_callback_timeout, aiohttp_session)
+    else:
+        async with aiohttp.ClientSession(raise_for_status=True) as session:
+            async with session.post(SIMPLEPUSH_URL + '/send', json=payload) as resp:
+                return await _handle_response_aio(await resp.json(), actions, actions_encrypted, feedback_callback, feedback_callback_timeout, session)
 
 async def _handle_response(response, actions, actions_encrypted, feedback_callback, feedback_callback_timeout):
     """Raise error if message was not successfully sent."""
@@ -83,11 +87,12 @@ async def _handle_response(response, actions, actions_encrypted, feedback_callba
 
     if 'feedbackId' in response.json() and feedback_callback is not None:
         feedback_id = response.json()['feedbackId']
-        await _query_feedback_endpoint(feedback_id, actions, actions_encrypted, feedback_callback, feedback_callback_timeout)
+        async with aiohttp.ClientSession(raise_for_status=True) as session:
+            await _query_feedback_endpoint(feedback_id, actions, actions_encrypted, feedback_callback, feedback_callback_timeout, session)
 
     response.raise_for_status()
 
-async def _handle_response_aio(json_response, actions, actions_encrypted, feedback_callback, feedback_callback_timeout):
+async def _handle_response_aio(json_response, actions, actions_encrypted, feedback_callback, feedback_callback_timeout, aiohttp_session):
     """Raise error if message was not successfully sent."""
     if json_response['status'] == 'BadRequest' and json_response['message'] == 'Title or message too long':
         raise BadRequest
@@ -97,7 +102,7 @@ async def _handle_response_aio(json_response, actions, actions_encrypted, feedba
 
     if 'feedbackId' in json_response and feedback_callback is not None:
         feedback_id = json_response['feedbackId']
-        await _query_feedback_endpoint(feedback_id, actions, actions_encrypted, feedback_callback, feedback_callback_timeout)
+        await _query_feedback_endpoint(feedback_id, actions, actions_encrypted, feedback_callback, feedback_callback_timeout, aiohttp_session)
 
 def _generate_payload(key, title, message, attachments=None, event=None, actions=None, password=None, salt=None):
     """Generator for the payload."""
@@ -206,42 +211,41 @@ def _check_attachments(attachments):
     if not isinstance(attachments, list) and attachments is not None:
         raise ValueError("Attachments malformed")
 
-async def _query_feedback_endpoint(feedback_id, actions, actions_encrypted, callback, timeout):
+async def _query_feedback_endpoint(feedback_id, actions, actions_encrypted, callback, timeout, aiohttp_session):
     stop = False
     n = 0
     start = time.time()
 
-    async with aiohttp.ClientSession() as session:
-        while not stop:
-            async with session.get(SIMPLEPUSH_URL + '/1/feedback/' + feedback_id) as resp:
-                json = await resp.json()
-                if resp.ok and json['success']:
-                    if json['action_selected']:
-                        stop = True
-                        
-                        if actions_encrypted is None:
-                            callback(json['action_selected'], json['action_selected_at'], json['action_delivered_at'], feedback_id)
-                        else:
-                            encrypted_action_selected = json['action_selected']
-                            idx = actions_encrypted.index(encrypted_action_selected)
-                            action_selected = actions[idx]
-                            callback(action_selected, json['action_selected_at'], json['action_delivered_at'], feedback_id)
-                    else:
-                        if timeout:
-                            now = time.time()
-                            if now > start + timeout:
-                                stop = True
-                                raise FeedbackActionTimeout("Feedback Action ID: " + feedback_id)
-
-                        if n < 60:
-                            # In the first minute query every second
-                            await asyncio.sleep(1)
-                        elif n < 260:
-                            # In the ten minutes after the first minute query every 3 seconds
-                            await asyncio.sleep(3)
-                        else:
-                            # After 11 minutes query every five seconds
-                            await asyncio.sleep(5)
-                else:
+    while not stop:
+        async with aiohttp_session.get(SIMPLEPUSH_URL + '/1/feedback/' + feedback_id) as resp:
+            json = await resp.json()
+            if resp.ok and json['success']:
+                if json['action_selected']:
                     stop = True
-                    raise FeedbackActionError("Failed to reach feedback API.")
+
+                    if actions_encrypted is None:
+                        callback(json['action_selected'], json['action_selected_at'], json['action_delivered_at'], feedback_id)
+                    else:
+                        encrypted_action_selected = json['action_selected']
+                        idx = actions_encrypted.index(encrypted_action_selected)
+                        action_selected = actions[idx]
+                        callback(action_selected, json['action_selected_at'], json['action_delivered_at'], feedback_id)
+                else:
+                    if timeout:
+                        now = time.time()
+                        if now > start + timeout:
+                            stop = True
+                            raise FeedbackActionTimeout("Feedback Action ID: " + feedback_id)
+
+                    if n < 60:
+                        # In the first minute query every second
+                        await asyncio.sleep(1)
+                    elif n < 260:
+                        # In the ten minutes after the first minute query every 3 seconds
+                        await asyncio.sleep(3)
+                    else:
+                        # After 11 minutes query every five seconds
+                        await asyncio.sleep(5)
+            else:
+                stop = True
+                raise FeedbackActionError("Failed to reach feedback API.")
