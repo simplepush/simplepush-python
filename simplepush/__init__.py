@@ -240,11 +240,11 @@ def _query_feedback_endpoint(feedback_id, actions, actions_encrypted, callback, 
                     # In the first minute query every second
                     time.sleep(1)
                 elif n < 260:
-                    # In the ten minutes after the first minute query every 3 seconds
-                    time.sleep(3)
+                    # In the ten minutes after the first minute query every two seconds
+                    time.sleep(2)
                 else:
-                    # After 11 minutes query every five seconds
-                    time.sleep(5)
+                    # After 11 minutes query every three seconds
+                    time.sleep(3)
         else:
             stop = True
             raise FeedbackActionError("Failed to reach feedback API.")
@@ -279,11 +279,11 @@ async def _async_query_feedback_endpoint(feedback_id, actions, actions_encrypted
                         # In the first minute query every second
                         await asyncio.sleep(1)
                     elif n < 260:
-                        # In the ten minutes after the first minute query every 3 seconds
-                        await asyncio.sleep(3)
+                        # In the ten minutes after the first minute query every two seconds
+                        await asyncio.sleep(2)
                     else:
-                        # After 11 minutes query every five seconds
-                        await asyncio.sleep(5)
+                        # After 11 minutes query every three seconds
+                        await asyncio.sleep(3)
             else:
                 stop = True
                 raise FeedbackActionError("Failed to reach feedback API.")
