@@ -4,7 +4,7 @@ from distutils.core import setup
 setup(
     name='simplepush',
     packages=['simplepush'],
-    version='2.1.0',
+    version='2.1.1',
     description='Simplepush Python Library',
     author='Timm Schaeuble',
     author_email='contact@simplepush.io',
