@@ -15,7 +15,7 @@ DEFAULT_TIMEOUT = 5
 
 SALT = '1789F0B8C4A051E5'
 
-SIMPLEPUSH_URL = 'https://api.simplepush.io'
+SIMPLEPUSH_URL = 'https://simplepu.sh'
 
 class BadRequest(Exception):
     """Raised when API thinks that title or message are too long."""
