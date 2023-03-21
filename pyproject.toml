@@ -1,0 +1,26 @@
+[build-system]
+requires = [
+    "setuptools>=61.0",
+    "requests",
+    "cryptography",
+    "aiohttp"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "simplepush"
+version = "2.1.1"
+authors = [
+  { name="Timm Schaeuble", email="contact@simplepush.io" },
+]
+description = "Simplepush Python Library"
+readme = "README.md"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/simplepush/simplepush-python"
+"Bug Tracker" = "https://github.com/simplepush/simplepush-python/issues"
