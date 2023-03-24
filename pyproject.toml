@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simplepush"
-version = "2.2.1"
+version = "2.2.2"
 authors = [
   { name="Timm Schaeuble", email="contact@simplepush.io" },
 ]

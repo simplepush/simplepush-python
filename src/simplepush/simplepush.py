@@ -305,7 +305,7 @@ async def _async_query_feedback_endpoint(feedback_id, actions, actions_encrypted
                         raise FeedbackActionError("Failed to reach feedback API.")
                     else:
                         time.sleep(5)
-        except aiohttp.ClientConnectionError as e:
+        except (aiohttp.ClientConnectionError, asyncio.TimeoutError) as e:
             if not ignore_connection_errors:
                 stop = True
                 raise FeedbackActionError("Failed to reach feedback API: " + str(e))
