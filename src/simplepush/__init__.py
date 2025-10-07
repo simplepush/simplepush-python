@@ -1,1 +1,1 @@
-from .simplepush import send, async_send, BadRequest, UnknownError, FeedbackActionError, FeedbackActionTimeout, FeedbackUnavailable
+from .simplepush import send, async_send, BadRequest, UnknownError, FeedbackActionError, FeedbackActionTimeout, FeedbackUnavailable, RateLimitExceeded

@@ -37,6 +37,10 @@ class FeedbackUnavailable(Exception):
     """Raised when feedback doesn't exist."""
     pass
 
+class RateLimitExceeded(Exception):
+    """Raised when rate limit is exceeded."""
+    pass
+
 
 def send(key, message, title=None, password=None, salt=None, attachments = None, event=None, actions=None, feedback_callback=None, feedback_callback_timeout=60, ignore_connection_errors=True):
     """Send a plain-text message."""
@@ -75,14 +79,19 @@ async def async_send(key, message, title=None, password=None, salt=None, attachm
     
     if aiohttp_session:
         async with aiohttp_session.post(SIMPLEPUSH_URL + '/send', json=payload) as resp:
-            return await _async_handle_response(await resp.json(), actions, actions_encrypted, feedback_callback, feedback_callback_timeout,ignore_connection_errors, aiohttp_session)
+            return await _async_handle_response(resp, actions, actions_encrypted, feedback_callback, feedback_callback_timeout,ignore_connection_errors, aiohttp_session)
     else:
-        async with aiohttp.ClientSession(raise_for_status=True) as session:
+        timeout = aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(SIMPLEPUSH_URL + '/send', json=payload) as resp:
-                return await _async_handle_response(await resp.json(), actions, actions_encrypted, feedback_callback, feedback_callback_timeout, ignore_connection_errors, session)
+                return await _async_handle_response(resp, actions, actions_encrypted, feedback_callback, feedback_callback_timeout, ignore_connection_errors, session)
 
 def _handle_response(response, actions, actions_encrypted, feedback_callback, feedback_callback_timeout, ignore_connection_errors):
     """Raise error if message was not successfully sent."""
+
+    if response.status_code == 429:
+        raise RateLimitExceeded
+
     if response.json()['status'] == 'BadRequest' and response.json()['message'] == 'Title or message too long':
         raise BadRequest
 
@@ -95,8 +104,13 @@ def _handle_response(response, actions, actions_encrypted, feedback_callback, fe
 
     response.raise_for_status()
 
-async def _async_handle_response(json_response, actions, actions_encrypted, feedback_callback, feedback_callback_timeout, ignore_connection_errors, aiohttp_session):
+async def _async_handle_response(response, actions, actions_encrypted, feedback_callback, feedback_callback_timeout, ignore_connection_errors, aiohttp_session):
     """Raise error if message was not successfully sent."""
+
+    if response.status == 429:
+        raise RateLimitExceeded
+
+    json_response = await response.json()
     if json_response['status'] == 'BadRequest' and json_response['message'] == 'Title or message too long':
         raise BadRequest
 
