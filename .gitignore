@@ -1,0 +1,13 @@
+# Packaging / build artifacts
+build/
+dist/
+*.egg-info/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Test / tooling caches
+.pytest_cache/
+.tox/
+.coverage
