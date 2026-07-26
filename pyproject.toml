@@ -1,26 +1,75 @@
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "simplepush"
-version = "2.2.5"
-authors = [
-  { name="Timm Schaeuble", email="contact@simplepush.io" },
-]
-description = "Simplepush Python Library"
+version = "3.0.0"
+description = "Python client for Simplepush (tasks, notifications, events, end-to-end encryption)."
 readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [{ name = "Timm Schaeuble", email = "contact@simplepush.io" }]
+keywords = [
+    "simplepush",
+    "push",
+    "notifications",
+    "actionable-notifications",
+    "websocket",
+    "events",
+    "tasks",
+    "workflow",
+    "automation",
+    "low-code",
+    "no-code",
+    "forms",
+    "data-collection",
+    "human-in-the-loop",
+    "approvals",
+    "mobile",
+    "end-to-end-encryption",
+]
 classifiers = [
-    "Programming Language :: Python :: 3",
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Communications",
+    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
+
+# The HTTP path uses stdlib `urllib`. WebSocket events need the `websockets`
+# package. The crypto extra pulls in libsodium (`pynacl`) for Argon2id and
+# XChaCha20-Poly1305, matching the other clients' wire format; callers who only
+# want event/HTTP can install without it.
 dependencies = [
-  "requests",
-  "cryptography",
-  "aiohttp"
+    "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+crypto = [
+    "pynacl>=1.5.0",
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/simplepush/simplepush-python"
-"Bug Tracker" = "https://github.com/simplepush/simplepush-python/issues"
+Homepage = "https://simplepu.sh"
+Documentation = "https://simplepu.sh/guide/python-sdk"
+Source = "https://github.com/simplepush/simplepush-python"
+Issues = "https://github.com/simplepush/simplepush-python/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/simplepush"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/simplepush",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
+]
