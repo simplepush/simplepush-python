@@ -157,11 +157,11 @@ class Decryptor:
         return decrypt(ciphertext_b64, self._dk.symmetric_key)
 
     def try_decrypt_marker(self, ciphertext_b64: str, marker) -> str | None:
-        """Decrypt a personal-mode marker ``{type: "personal", passwordFingerprint}``
+        """Decrypt a personal-mode marker ``{type: "personal", keyFingerprint}``
         when its fingerprint matches this key; else None. Ignores org markers."""
         if not isinstance(marker, dict) or marker.get("type") != "personal":
             return None
-        return self.try_decrypt(ciphertext_b64, marker.get("passwordFingerprint"))
+        return self.try_decrypt(ciphertext_b64, marker.get("keyFingerprint"))
 
     def key_for_marker(self, marker) -> bytes | None:
         """The raw symmetric key when a personal marker's fingerprint matches this
@@ -170,7 +170,7 @@ class Decryptor:
         apply.)"""
         if not isinstance(marker, dict) or marker.get("type") != "personal":
             return None
-        if marker.get("passwordFingerprint") != self._dk.fingerprint:
+        if marker.get("keyFingerprint") != self._dk.fingerprint:
             return None
         return self._dk.symmetric_key
 
@@ -239,7 +239,7 @@ class Keyring:
         ring = Keyring.build(passwords=["secret"], topics=["alerts", "deploys"])
         plaintext = ring.try_decrypt_marker(ciphertext_b64, marker)
 
-    Personal markers (``{type: "personal", passwordFingerprint}``) resolve by
+    Personal markers (``{type: "personal", keyFingerprint}``) resolve by
     fingerprint over ``passwords × topics``; org markers (``{type: "org", v}``)
     by version. It implements ``try_decrypt_marker`` so it is a drop-in wherever a
     decryptor is expected. Keys can be folded in after construction with `add`
@@ -277,7 +277,7 @@ class Keyring:
         if not isinstance(marker, dict):
             return None
         if marker.get("type") == "personal":
-            return self._by_fingerprint.get(marker.get("passwordFingerprint"))
+            return self._by_fingerprint.get(marker.get("keyFingerprint"))
         if marker.get("type") == "org":
             return self._by_version.get(marker.get("v"))
         return None

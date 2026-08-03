@@ -767,7 +767,7 @@ class _BaseClient:
                     meta = {k: inp.pop(k) for k in ("min", "max", "step", "unit", "defaultValue") if k in inp}
                     inp["encrypted"] = encrypt(json.dumps(meta), dk.symmetric_key)
             remote = [encrypt(url, dk.symmetric_key) for url in remote]
-            encryption_dict = {"type": "personal", "passwordFingerprint": dk.fingerprint}
+            encryption_dict = {"type": "personal", "keyFingerprint": dk.fingerprint}
         elif self._org_decryptor is not None:
             # Org-mode: encrypt the body under the org's current master key.
             from .crypto import encrypt
@@ -975,7 +975,7 @@ class _BaseClient:
                 for a in action_defs:
                     a["key"] = encrypt(a["key"], dk.symmetric_key)
                     a["label"] = encrypt(a["label"], dk.symmetric_key)
-            encryption_dict = {"type": "personal", "passwordFingerprint": dk.fingerprint}
+            encryption_dict = {"type": "personal", "keyFingerprint": dk.fingerprint}
         elif self._org_decryptor is not None:
             from .crypto import encrypt
             version = self._org_decryptor.current_version
@@ -1187,7 +1187,7 @@ class _BaseClient:
                     meta = {k: inp.pop(k) for k in ("min", "max", "step", "unit", "defaultValue") if k in inp}
                     inp["encrypted"] = encrypt(json.dumps(meta), send_key.symmetric_key)
             remote = [encrypt(url, send_key.symmetric_key) for url in remote]
-            encryption_dict = {"type": "personal", "passwordFingerprint": send_key.fingerprint}
+            encryption_dict = {"type": "personal", "keyFingerprint": send_key.fingerprint}
         elif self._org_decryptor is not None:
             from .crypto import encrypt
             version = self._org_decryptor.current_version

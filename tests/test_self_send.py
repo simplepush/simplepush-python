@@ -76,7 +76,7 @@ class SelfSendTest(unittest.TestCase):
         self.assertNotIn("topic", body)
         # Encrypted under the account key: personal marker + ciphertext body.
         self.assertEqual(body["encryption"]["type"], "personal")
-        self.assertIn("passwordFingerprint", body["encryption"])
+        self.assertIn("keyFingerprint", body["encryption"])
         self.assertNotEqual(body["content"], "hi")
         self.assertNotEqual(body["title"], "secret")
 

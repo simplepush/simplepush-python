@@ -222,7 +222,7 @@ class NotificationActionReplyTest(unittest.TestCase):
         # The recipient encrypts the tapped key on the wire (server-blind), just
         # like a task action upload — it must be decrypted via the event marker.
         dec = Decryptor.from_password("hunter2", "alerts")
-        marker = {"type": "personal", "passwordFingerprint": dec.fingerprint}
+        marker = {"type": "personal", "keyFingerprint": dec.fingerprint}
         ct = encrypt("approve", dec._dk.symmetric_key)
         reply = _wrap_notification_reply({"type": "actions", "selectedKey": ct}, marker, dec)
         self.assertEqual(reply, NotificationActionReply(selected_key="approve"))

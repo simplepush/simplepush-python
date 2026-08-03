@@ -173,7 +173,7 @@ class Event:
     notification_id: str | None = None  # set on notification-scoped events
     data_type: str | None = None
     download_url: str | None = None
-    password_fingerprint: str | None = None
+    key_fingerprint: str | None = None
     # Attribution for receive-side actions ({publicId, name?, devicePublicId?,
     # deviceName?}); None on send-side / collective events. `entity_id` carries
     # the same identity as a bare UUID (internal partition key) — prefer this.
@@ -199,7 +199,7 @@ class Event:
             notification_id=data.get("notificationId"),
             data_type=data.get("type"),
             download_url=download_url,
-            password_fingerprint=_marker_fingerprint(raw.get("encryption")),
+            key_fingerprint=_marker_fingerprint(raw.get("encryption")),
             actor=raw.get("actor"),
             data=data,
             raw=raw,
@@ -668,12 +668,12 @@ class NotificationCompleted:
 
 def _marker_fingerprint(marker) -> str | None:
     """The personal fingerprint from an `Encryption` wire marker:
-    ``{"type": "personal", "passwordFingerprint": ...}`` -> the fingerprint;
+    ``{"type": "personal", "keyFingerprint": ...}`` -> the fingerprint;
     ``{"type": "org", "v": ...}`` or ``None`` -> ``None``. This SDK is
     topic/personal-mode, so org ciphertext (decrypted via a device master_key,
     which the SDK doesn't hold) is passed through unchanged."""
     if isinstance(marker, dict) and marker.get("type") == "personal":
-        return marker.get("passwordFingerprint")
+        return marker.get("keyFingerprint")
     return None
 
 

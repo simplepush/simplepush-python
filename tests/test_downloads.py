@@ -316,7 +316,7 @@ class EncryptedReplyLocationTest(unittest.IsolatedAsyncioTestCase):
         coords = {"latitude": 48.8566, "longitude": 2.3522, "speed": 0.0,
                   "timestamp": 1700000001000}
         ciphertext = encrypt(json.dumps(coords), dk.symmetric_key)
-        marker = {"type": "personal", "passwordFingerprint": dk.fingerprint}
+        marker = {"type": "personal", "keyFingerprint": dk.fingerprint}
         ev = _reply_event({"id": "r-loc-3", "encryption": marker,
                            "location": {"encrypted": ciphertext}})
         reply = _wrap_reply(ev, keyring, None)
@@ -332,7 +332,7 @@ class EncryptedReplyLocationTest(unittest.IsolatedAsyncioTestCase):
         dk = derive_key("secret", "alerts")
         ciphertext = encrypt(json.dumps({"latitude": 1.0, "longitude": 2.0}),
                              dk.symmetric_key)
-        marker = {"type": "personal", "passwordFingerprint": "wrong"}
+        marker = {"type": "personal", "keyFingerprint": "wrong"}
         ev = _reply_event({"id": "r-loc-4", "encryption": marker,
                            "location": {"encrypted": ciphertext}})
         keyring = Keyring.build(passwords=["other"], topics=["t"])

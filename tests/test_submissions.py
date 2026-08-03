@@ -131,13 +131,13 @@ class EncryptedSubmissionTest(unittest.IsolatedAsyncioTestCase):
         dk = derive_key(password, topic)
         keyring = Keyring.build(passwords=[password], topics=[topic])
         ciphertext = encrypt("classified", dk.symmetric_key)
-        marker = {"type": "personal", "passwordFingerprint": dk.fingerprint}
+        marker = {"type": "personal", "keyFingerprint": dk.fingerprint}
         ev = _event({"id": "sbm-6", "body": {"type": "text", "value": ciphertext}, "encryption": marker})
         sub = _wrap_submission(ev, keyring, None)
         self.assertEqual(sub.body, TextBody(text="classified"))
 
     def test_body_without_key_passes_ciphertext_through(self):
-        marker = {"type": "personal", "passwordFingerprint": "unknown"}
+        marker = {"type": "personal", "keyFingerprint": "unknown"}
         ev = _event({"id": "sbm-7", "body": {"type": "text", "value": "ciphertext-blob"}, "encryption": marker})
         keyring = Keyring.build(passwords=["other"], topics=["t"])
         sub = _wrap_submission(ev, keyring, None)
@@ -155,7 +155,7 @@ class SubmissionsPasswordOverrideTest(unittest.TestCase):
         client._fetch_password_salt = lambda: "server-salt"
         client.submissions(password="given-pw")  # supply it at call time
         dk = derive_key("given-pw", "server-salt")
-        marker = {"type": "personal", "passwordFingerprint": dk.fingerprint}
+        marker = {"type": "personal", "keyFingerprint": dk.fingerprint}
         ct = encrypt("secret", dk.symmetric_key)
         self.assertEqual(client.keyring().try_decrypt_marker(ct, marker), "secret")
 
@@ -190,7 +190,7 @@ class DefaultKeyFoldTest(unittest.TestCase):
         client.submissions()  # triggers the fold
 
         dk = derive_key(password, salt)
-        marker = {"type": "personal", "passwordFingerprint": dk.fingerprint}
+        marker = {"type": "personal", "keyFingerprint": dk.fingerprint}
         ciphertext = encrypt("secret", dk.symmetric_key)
         # The keyring now resolves content encrypted under the default key.
         self.assertEqual(client.keyring().try_decrypt_marker(ciphertext, marker), "secret")
@@ -246,7 +246,7 @@ class KeyringFromPairsTest(unittest.TestCase):
         from simplepush import Client
         client = Client(api_token="tok", passwords=[("topicpw", "alerts")])
         dk = derive_key("topicpw", "alerts")
-        marker = {"type": "personal", "passwordFingerprint": dk.fingerprint}
+        marker = {"type": "personal", "keyFingerprint": dk.fingerprint}
         ct = encrypt("hi", dk.symmetric_key)
         self.assertEqual(client.keyring().try_decrypt_marker(ct, marker), "hi")
 
@@ -310,7 +310,7 @@ class SubmissionLocationTest(unittest.IsolatedAsyncioTestCase):
             "timestamp": 9876543210000,
         }
         ciphertext = encrypt(json.dumps(coords), dk.symmetric_key)
-        marker = {"type": "personal", "passwordFingerprint": dk.fingerprint}
+        marker = {"type": "personal", "keyFingerprint": dk.fingerprint}
         ev = _event({
             "id": "sbm-loc-2",
             "location": {"encrypted": ciphertext},
@@ -332,7 +332,7 @@ class SubmissionLocationTest(unittest.IsolatedAsyncioTestCase):
         dk = derive_key("secret", "alerts")
         ciphertext = encrypt(json.dumps(coords), dk.symmetric_key)
         # A marker whose fingerprint the keyring can't resolve → undecryptable.
-        marker = {"type": "personal", "passwordFingerprint": "wrong"}
+        marker = {"type": "personal", "keyFingerprint": "wrong"}
         ev = _event({
             "id": "sbm-loc-3",
             "location": {"encrypted": ciphertext},
@@ -401,7 +401,7 @@ class WrapUploadEncryptedLocationTest(unittest.TestCase):
         keyring = Keyring.build(passwords=[password], topics=[topic])
         coords = {"latitude": 40.7128, "longitude": -74.006, "accuracy": 12.0}
         ciphertext = encrypt(json.dumps(coords), dk.symmetric_key)
-        marker = {"type": "personal", "passwordFingerprint": dk.fingerprint}
+        marker = {"type": "personal", "keyFingerprint": dk.fingerprint}
         u = {"type": "locationUploaded", "id": "in-loc-2", "encrypted": ciphertext}
         up = _wrap_upload(u, marker, keyring, None)
         self.assertIsInstance(up, LocationUpload)
