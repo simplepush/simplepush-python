@@ -49,8 +49,9 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 
 from .client import (
-    Event, InputEvent, Notification, NotificationGroup, NotificationGroupRecipient,
-    RawEvents, Reply, Subtask, Submissions, Task, TaskGroup, TaskGroupRecipient,
+    Event, GroupCancelResult, InputEvent, Notification, NotificationGroup,
+    NotificationGroupRecipient, RawEvents, Reply, Subtask, Submissions, Task,
+    TaskGroup, TaskGroupRecipient,
     _DownloadTransport, _FileBinder, _Hub,
 )
 
@@ -317,6 +318,16 @@ class ApiError(Exception):
     def __init__(self, status: int, body: str):
         self.status = status
         self.body = body
+        # The backend error envelope is {"error": "<code>", "msg": "..."};
+        # surface the machine-readable code (e.g. "task_canceled",
+        # "task_already_completed") so callers can branch without parsing.
+        self.code: str | None = None
+        try:
+            parsed = json.loads(body)
+            if isinstance(parsed, dict) and isinstance(parsed.get("error"), str):
+                self.code = parsed["error"]
+        except ValueError:
+            pass
         super().__init__(f"HTTP {status}: {body}")
 
 
@@ -329,6 +340,17 @@ class ReplyMode(str, Enum):
     ONE_SHOT = "one-shot"                  # first reply wins; the slot closes for everyone
     STICKY = "sticky"                      # composer stays open indefinitely
     ONE_TIME_PER_USER = "one-time-per-user"  # one reply per user
+
+
+class CancelReason(str, Enum):
+    """Why a sender cancels (the `reason=` argument to the `.cancel()`
+    methods), rendered on the recipient's card. Members are `str`, so they
+    serialize directly and compare equal to their wire value (e.g.
+    ``CancelReason.ANSWERED == "answered"``).
+    """
+    CANCELED = "canceled"      # plain withdrawal (the default when omitted)
+    ANSWERED = "answered"      # another recipient's answer made the rest moot
+    SUPERSEDED = "superseded"  # a replacement exists; superseded_by names it
 
 
 class ContentFormat(str, Enum):
@@ -1283,6 +1305,7 @@ class _BaseClient:
             self._hub,
             decryptor=task._decryptor,
             client=self,
+            send_key=task._send_key,
         )
 
     def _append_subtasks_to_group(self, group, *, instances=None, title=None,
@@ -1326,8 +1349,56 @@ class _BaseClient:
                 self._hub,
                 decryptor=group._decryptor,
                 client=self,
+                send_key=group._send_key,
             ))
         return subtasks
+
+    def _cancel_body(self, send_key, *, reason: "str | CancelReason", note: str | None,
+                     superseded_by: str | None) -> dict:
+        """Shared body builder for the three cancel endpoints. Validates the
+        reason/pointer coupling client-side (mirrors the server's rule) and
+        encrypts the note under the chain's key — personal topic key or the
+        org master key — exactly like task/subtask content."""
+        reason = reason.value if isinstance(reason, CancelReason) else reason
+        if reason not in ("canceled", "answered", "superseded"):
+            raise ValueError(f"reason must be 'canceled', 'answered', or 'superseded', not {reason!r}")
+        if superseded_by is not None and reason != "superseded":
+            raise ValueError("superseded_by requires reason='superseded'")
+        body: dict = {"reason": reason}
+        if note is not None:
+            # The note carries its OWN marker (not the task's): a cancel is
+            # authored after the send, so an org note may use a newer
+            # master_key version than the task's marker names.
+            if send_key is not None:
+                from .crypto import encrypt
+                note = encrypt(note, send_key.symmetric_key)
+                body["encryption"] = {"type": "personal", "keyFingerprint": send_key.fingerprint}
+            elif self._org_decryptor is not None:
+                from .crypto import encrypt
+                version = self._org_decryptor.current_version
+                note = encrypt(note, self._org_decryptor.key_for_version(version))
+                body["encryption"] = {"type": "org", "v": version}
+            body["note"] = note
+        if superseded_by is not None:
+            body["supersededBy"] = superseded_by
+        return body
+
+    def _cancel_task(self, task, *, reason: str, note: str | None, superseded_by: str | None) -> None:
+        body = self._cancel_body(task._send_key, reason=reason, note=note, superseded_by=superseded_by)
+        headers = {"Api-Key": self._api_key} if self._api_key else {"API-Token": self._api_token}
+        self._post(f"/tasks/{task.task_id}/cancel", body, headers)
+
+    def _cancel_subtask(self, subtask, *, reason: str, note: str | None, superseded_by: str | None) -> None:
+        body = self._cancel_body(subtask._send_key, reason=reason, note=note, superseded_by=superseded_by)
+        headers = {"Api-Key": self._api_key} if self._api_key else {"API-Token": self._api_token}
+        self._post(f"/subtasks/{subtask.subtask_id}/cancel", body, headers)
+
+    def _cancel_task_group(self, group, *, reason: str, note: str | None,
+                           superseded_by: str | None) -> GroupCancelResult:
+        body = self._cancel_body(group._send_key, reason=reason, note=note, superseded_by=superseded_by)
+        headers = {"Api-Key": self._api_key} if self._api_key else {"API-Token": self._api_token}
+        resp = self._post(f"/task-groups/{group.group_id}/cancel", body, headers) or {}
+        return GroupCancelResult(canceled=resp.get("canceled", 0), skipped=resp.get("skipped", 0))
 
     def _post(self, path: str, body: dict, headers: dict | None = None) -> dict | None:
         url = f"{self._base}{path}"

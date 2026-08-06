@@ -1,11 +1,12 @@
 from .api import (
-    Client, OrgClient, ApiError, ReplyMode, ContentFormat, ActionStyle,
+    Client, OrgClient, ApiError, CancelReason, ReplyMode, ContentFormat, ActionStyle,
     NotificationInput, NotificationTextInput, NotificationChoiceInput, NotificationActionInput,
     TextInput, ChoiceInput, Action, ActionsInput, SliderInput, PhotoInput, VoiceRecordingInput, LocationInput, FileUploadInput,
 )
 from .client import (
     Event, Task, TaskGroup, TaskGroupRecipient, GroupReply, GroupInput, Subtask, Notification, NotificationGroup, NotificationGroupRecipient, GroupNotification, Reply, InputEvent,
     TaskCompleted, SubtaskCompleted, NotificationCompleted, TaskDeleted, RawEvents,
+    TaskCanceled, SubtaskCanceled, GroupCancelResult,
     NotificationReply, NotificationTextReply, NotificationChoiceReply, NotificationActionReply,
     TextBody, ReplyFile, ReplyAudio, Location,
     TextUpload, ChoiceUpload, MultiChoiceUpload, ActionUpload, SliderUpload, PhotoUpload, VoiceUpload, FileUpload, LocationUpload,
@@ -14,9 +15,10 @@ from .client import (
 )
 
 __all__ = [
-    "Client", "OrgClient", "ApiError", "StreamError", "DownloadError", "ReplyMode", "ContentFormat", "ActionStyle",
+    "Client", "OrgClient", "ApiError", "StreamError", "DownloadError", "CancelReason", "ReplyMode", "ContentFormat", "ActionStyle",
     "Event", "Task", "TaskGroup", "TaskGroupRecipient", "GroupReply", "GroupInput", "Subtask", "Notification", "NotificationGroup", "NotificationGroupRecipient", "GroupNotification", "Reply", "InputEvent",
     "TaskCompleted", "SubtaskCompleted", "NotificationCompleted", "TaskDeleted", "RawEvents",
+    "TaskCanceled", "SubtaskCanceled", "GroupCancelResult",
     "NotificationReply", "NotificationTextReply", "NotificationChoiceReply", "NotificationActionReply",
     "TextBody", "ReplyFile", "ReplyAudio", "Location",
     "TextUpload", "ChoiceUpload", "MultiChoiceUpload", "ActionUpload", "SliderUpload", "PhotoUpload", "VoiceUpload", "FileUpload", "LocationUpload",

@@ -131,13 +131,21 @@ _REPLY_TYPES = frozenset({"replyAppended"})
 # ends. (Not terminal for replies(), which can continue under a sticky composer.)
 _INPUT_TERMINAL = frozenset({"taskCompleted"})
 
+# Sender-side cancel events. `taskCanceled` is entity-wide terminal like
+# `taskDeleted` (a canceled root closes the whole chain — the backend emits NO
+# per-subtask events for it); `subtaskCanceled` is scoped to one subtask and
+# leaves the rest of the chain live.
+_TASK_CANCELED = "taskCanceled"
+_SUBTASK_CANCELED = "subtaskCanceled"
+
 # Subtask equivalents (events carry subtaskId + parentTaskId).
 _SUBTASK_INPUT_TYPES = frozenset({
     "subtaskInputUploaded",
     "subtaskInputCompleted",
     "subtaskCompleted",
+    _SUBTASK_CANCELED,
 })
-_SUBTASK_INPUT_TERMINAL = frozenset({"subtaskCompleted"})
+_SUBTASK_INPUT_TERMINAL = frozenset({"subtaskCompleted", _SUBTASK_CANCELED})
 
 # A notification emits exactly one event (`notificationCompleted`, carrying the
 # recipient's single answer); there is no input-upload lifecycle and no deletion
@@ -605,10 +613,80 @@ class TaskDeleted:
     raw: Event
 
 
-def _deleted_marker(ev: Event) -> TaskDeleted:
+def _deleted_marker(ev: Event, decryptor=None) -> TaskDeleted:
     # routing_id is the deleted entity's id (a task chain root). Notifications
     # have no deletion event, so this only ever fires for task chains.
+    # `decryptor` is unused — present so every entity-terminal marker factory
+    # shares one signature (the canceled marker decrypts its note).
     return TaskDeleted(task_id=ev.routing_id, created_at=ev.created_at, raw=ev)
+
+
+@dataclass(frozen=True, slots=True)
+class TaskCanceled:
+    """Terminal marker yielded as the final item of a task's `inputs()` /
+    `replies()` stream (and every subtask stream of the chain — a canceled
+    root closes the whole chain) when the SENDER cancels the task. `reason`
+    is `canceled`, `answered`, or `superseded`; `note` is decrypted where the
+    task's key is held; `superseded_by` names the replacement task when the
+    reason is `superseded`. Iteration ends immediately after it."""
+    task_id: str | None
+    reason: str | None
+    note: str | None
+    superseded_by: str | None
+    created_at: str | None
+    raw: Event
+
+
+def _canceled_marker(ev: Event, decryptor=None) -> TaskCanceled:
+    return TaskCanceled(
+        task_id=ev.routing_id,
+        reason=ev.data.get("reason"),
+        # The envelope marker on a canceled event IS the note's own marker
+        # (not the task's) — the backend sets it that way because the note is
+        # this event's only encrypted field and may use a different key than
+        # the send (org rotation; encrypted note on a plaintext task).
+        note=_maybe_decrypt(ev.data.get("note"), ev.raw.get("encryption"), decryptor),
+        superseded_by=ev.data.get("supersededBy"),
+        created_at=ev.created_at,
+        raw=ev,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class SubtaskCanceled:
+    """Terminal marker for ONE subtask's `inputs()` / `replies()` stream when
+    the sender withdraws that follow-up. Scoped: the rest of the chain stays
+    live. `superseded_by` names the replacement subtask (same chain) when the
+    reason is `superseded`."""
+    subtask_id: str | None
+    parent_task_id: str | None
+    reason: str | None
+    note: str | None
+    superseded_by: str | None
+    created_at: str | None
+    raw: Event
+
+
+def _subtask_canceled_marker(ev: Event, decryptor=None) -> SubtaskCanceled:
+    return SubtaskCanceled(
+        subtask_id=ev.subtask_id,
+        parent_task_id=ev.task_id,
+        reason=ev.data.get("reason"),
+        # Envelope marker = the note's own marker; see _canceled_marker.
+        note=_maybe_decrypt(ev.data.get("note"), ev.raw.get("encryption"), decryptor),
+        superseded_by=ev.data.get("supersededBy"),
+        created_at=ev.created_at,
+        raw=ev,
+    )
+
+
+# Entity-wide terminal events: they ignore subtask scope, so one of these ends
+# the root's streams AND every subtask stream of the chain. Maps data.type to
+# the marker factory yielded as the stream's final item.
+_ENTITY_TERMINALS = {
+    _TASK_DELETED: _deleted_marker,
+    _TASK_CANCELED: _canceled_marker,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -815,7 +893,10 @@ def _wrap_reply_location(loc: dict | None, marker, decryptor) -> Location | None
     )
 
 
-def _wrap_reply(ev: Event, decryptor, files) -> Reply:
+def _wrap_reply(ev: Event, decryptor, files) -> "Reply | SubtaskCanceled":
+    # A subtask reply stream also wants its own cancel (scoped terminal).
+    if ev.data_type == _SUBTASK_CANCELED:
+        return _subtask_canceled_marker(ev, decryptor)
     reply = ev.data.get("reply") or {}
     marker = reply.get("encryption")
     ctx = files.bind(marker) if files is not None else None
@@ -895,6 +976,8 @@ def _wrap_input(ev: Event, decryptor, files) -> "InputEvent | TaskCompleted | Su
         return SubtaskCompleted(subtask_id=ev.subtask_id, parent_task_id=ev.task_id,
                                 uploads=_wrap_uploads(data.get("inputsUploaded") or [], marker, decryptor, files),
                                 raw=ev)
+    if ev.data_type == _SUBTASK_CANCELED:
+        return _subtask_canceled_marker(ev, decryptor)
     raw_uploads = [data["inputUploaded"]] if data.get("inputUploaded") else []
     return InputEvent(type=ev.data_type, uploads=_wrap_uploads(raw_uploads, marker, decryptor, files), raw=ev)
 
@@ -1167,9 +1250,10 @@ class Task:
 
     def inputs(self, *, timeout: float | None = None, replay: bool = False):
         """Yield `InputEvent` objects for this task. Iteration ends after a
-        terminal marker: `TaskCompleted` (all inputs committed; carries the full
-        set) or `TaskDeleted` (task deleted). Both are yielded as the final item.
-        Also stops (without a marker) after `timeout` seconds with no event.
+        terminal marker: `TaskCompleted` (all inputs committed; carries the
+        full set), `TaskDeleted` (task deleted), or `TaskCanceled` (sender
+        withdrew it). Each is yielded as the final item. Also stops (without a
+        marker) after `timeout` seconds with no event.
 
         With `replay=True` the buffered backlog since the task was sent is
         replayed first (so nothing in the send-to-iterate gap is missed); the
@@ -1178,7 +1262,7 @@ class Task:
         Photo/voice/file uploads on the yielded events are downloadable:
         `await upload.read()` / `await upload.save(path)`.
 
-        Yields: InputEvent | TaskCompleted | TaskDeleted
+        Yields: InputEvent | TaskCompleted | TaskDeleted | TaskCanceled
         """
         return _TaskStream(self._hub, self.task_id, None, self._decryptor,
                            _INPUT_TYPES, _wrap_input, timeout, _INPUT_TERMINAL, replay=replay,
@@ -1186,13 +1270,14 @@ class Task:
 
     def replies(self, *, timeout: float | None = None, replay: bool = False):
         """Yield `Reply` objects anchored to this task (not its subtasks). Ends
-        with a `TaskDeleted` marker if the task is deleted, or after `timeout`.
-        `replay=True` replays the buffered backlog first.
+        with a `TaskDeleted` / `TaskCanceled` marker if the task is deleted or
+        canceled, or after `timeout`. `replay=True` replays the buffered
+        backlog first.
 
         A reply's `photo` / `file` are downloadable: `await reply.photo.read()`
         / `await reply.photo.save(path)`.
 
-        Yields: Reply | TaskDeleted
+        Yields: Reply | TaskDeleted | TaskCanceled
         """
         return _TaskStream(self._hub, self.task_id, None, self._decryptor,
                            _REPLY_TYPES, _wrap_reply, timeout, frozenset(), replay=replay,
@@ -1218,15 +1303,32 @@ class Task:
             content_format=content_format,
         )
 
+    def cancel(self, *, reason: str = "canceled", note: str | None = None,
+               superseded_by: "str | Task | None" = None) -> None:
+        """Cancel this pending task (sender-side withdrawal). Recipients see the
+        card flip to canceled; a collector's `inputs()`/`replies()` stream ends
+        with a `TaskCanceled` marker. `reason` is a `CancelReason` (or its
+        string value `canceled`, `answered`, `superseded`); `superseded_by`
+        (a task id or `Task`, requires reason
+        `superseded`) names the replacement. `note` is encrypted under the
+        chain's key when the send was encrypted. Idempotent on re-cancel;
+        raises `ApiError` (`task_already_completed`) if the task was answered
+        first."""
+        if self._client is None:
+            raise RuntimeError("this Task was not created by a client; cannot cancel")
+        sid = superseded_by.task_id if isinstance(superseded_by, Task) else superseded_by
+        self._client._cancel_task(self, reason=reason, note=note, superseded_by=sid)
+
 
 @dataclass
 class GroupReply:
     """A reply collected over a whole task group (`TaskGroup.replies()`): the
-    `item` — a `Reply`, or a `TaskDeleted` marker when that member's task was
-    deleted — together with the member `instance` it arrived on. `recipient` is
-    a shortcut to `instance.recipient`: who replied."""
+    `item` — a `Reply`, or a `TaskDeleted` / `TaskCanceled` marker when that
+    member's task was deleted or canceled — together with the member `instance`
+    it arrived on. `recipient` is a shortcut to `instance.recipient`: who
+    replied."""
     instance: "Task"
-    item: "Reply | TaskDeleted"
+    item: "Reply | TaskDeleted | TaskCanceled"
 
     @property
     def recipient(self) -> "TaskGroupRecipient | None":
@@ -1237,15 +1339,24 @@ class GroupReply:
 class GroupInput:
     """An input event collected over a whole task group (`TaskGroup.inputs()`):
     the `item` — an `InputEvent`, a terminal `TaskCompleted` (that member's full
-    committed input set), or a `TaskDeleted` marker — together with the member
-    `instance` it arrived on. `recipient` is a shortcut to `instance.recipient`:
-    whose input it is."""
+    committed input set), or a `TaskDeleted` / `TaskCanceled` marker — together
+    with the member `instance` it arrived on. `recipient` is a shortcut to
+    `instance.recipient`: whose input it is."""
     instance: "Task"
-    item: "InputEvent | TaskCompleted | TaskDeleted"
+    item: "InputEvent | TaskCompleted | TaskDeleted | TaskCanceled"
 
     @property
     def recipient(self) -> "TaskGroupRecipient | None":
         return self.instance.recipient
+
+
+@dataclass(frozen=True, slots=True)
+class GroupCancelResult:
+    """How a group cancel landed: `canceled` instances were still pending and
+    got the cancel; `skipped` were already terminal (completed or canceled)
+    and were left untouched. canceled + skipped = instance count."""
+    canceled: int
+    skipped: int
 
 
 class TaskGroup:
@@ -1365,6 +1476,20 @@ class TaskGroup:
             reply=reply, content_format=content_format,
         )
 
+    def cancel(self, *, reason: str = "canceled", note: str | None = None,
+               superseded_by: "str | TaskGroup | None" = None) -> "GroupCancelResult":
+        """Cancel every still-pending member instance (cancel-the-rest:
+        `reason=CancelReason.ANSWERED` after one member's answer). Completed/canceled
+        members are skipped, never failed — the returned `GroupCancelResult`
+        reports both counts. `superseded_by` (a group id or `TaskGroup`,
+        requires reason `superseded`) names the replacement GROUP; the server
+        points each canceled instance at its own recipient's replacement
+        instance."""
+        if self._client is None:
+            raise RuntimeError("this TaskGroup was not created by a client; cannot cancel")
+        sid = superseded_by.group_id if isinstance(superseded_by, TaskGroup) else superseded_by
+        return self._client._cancel_task_group(self, reason=reason, note=note, superseded_by=sid)
+
 
 class Subtask:
     """Handle for a subtask appended to a task. `inputs()` / `replies()` are
@@ -1372,13 +1497,14 @@ class Subtask:
     cannot itself be appended to."""
 
     def __init__(self, subtask_id: str, parent_task_id: str, created_at: str | None,
-                 hub: _Hub, *, decryptor=None, client=None):
+                 hub: _Hub, *, decryptor=None, client=None, send_key=None):
         self.subtask_id = subtask_id
         self.parent_task_id = parent_task_id
         self.created_at = created_at
         self._hub = hub
         self._decryptor = decryptor
         self._client = client
+        self._send_key = send_key  # the chain's key — encrypts a cancel note
 
     def _file_binder(self) -> "_FileBinder | None":
         # The download endpoints are task-scoped and resolve subtask files
@@ -1389,13 +1515,15 @@ class Subtask:
 
     def inputs(self, *, timeout: float | None = None, replay: bool = False):
         """Yield `InputEvent` objects for this subtask. Ends with a
-        `SubtaskCompleted` marker (inputs committed) or `TaskDeleted` (chain
-        deleted), or after `timeout`. `replay=True` replays the backlog first.
+        `SubtaskCompleted` marker (inputs committed), `SubtaskCanceled` (this
+        follow-up withdrawn), or `TaskDeleted` / `TaskCanceled` (chain deleted
+        or its root canceled), or after `timeout`. `replay=True` replays the
+        backlog first.
 
         Photo/voice/file uploads on the yielded events are downloadable:
         `await upload.read()` / `await upload.save(path)`.
 
-        Yields: InputEvent | SubtaskCompleted | TaskDeleted
+        Yields: InputEvent | SubtaskCompleted | SubtaskCanceled | TaskDeleted | TaskCanceled
         """
         return _TaskStream(self._hub, self.parent_task_id, self.subtask_id, self._decryptor,
                            _SUBTASK_INPUT_TYPES, _wrap_input, timeout, _SUBTASK_INPUT_TERMINAL,
@@ -1403,17 +1531,30 @@ class Subtask:
 
     def replies(self, *, timeout: float | None = None, replay: bool = False):
         """Yield `Reply` objects anchored to this subtask. Ends with a
-        `TaskDeleted` marker if the chain is deleted, or after `timeout`.
-        `replay=True` replays the backlog first.
+        `TaskDeleted` / `TaskCanceled` marker if the chain is deleted or its
+        root canceled, a `SubtaskCanceled` marker if THIS subtask is canceled,
+        or after `timeout`. `replay=True` replays the backlog first.
 
         A reply's `photo` / `file` are downloadable: `await reply.photo.read()`
         / `await reply.photo.save(path)`.
 
-        Yields: Reply | TaskDeleted
+        Yields: Reply | TaskDeleted | TaskCanceled | SubtaskCanceled
         """
         return _TaskStream(self._hub, self.parent_task_id, self.subtask_id, self._decryptor,
-                           _REPLY_TYPES, _wrap_reply, timeout, frozenset(), replay=replay,
+                           _REPLY_TYPES | {_SUBTASK_CANCELED}, _wrap_reply, timeout,
+                           frozenset({_SUBTASK_CANCELED}), replay=replay,
                            files=self._file_binder())
+
+    def cancel(self, *, reason: str = "canceled", note: str | None = None,
+               superseded_by: "str | Subtask | None" = None) -> None:
+        """Cancel this pending follow-up while the chain stays live. `reason`
+        is a `CancelReason` (or its string value); the replacement named by
+        `superseded_by` (a subtask id or `Subtask`, requires reason
+        `superseded`) must belong to the SAME chain."""
+        if self._client is None:
+            raise RuntimeError("this Subtask was not created by a client; cannot cancel")
+        sid = superseded_by.subtask_id if isinstance(superseded_by, Subtask) else superseded_by
+        self._client._cancel_subtask(self, reason=reason, note=note, superseded_by=sid)
 
 
 # Who an independent-mode notification instance was delivered to — the
@@ -1462,7 +1603,7 @@ class Notification:
         """
         return _TaskStream(self._hub, self.notification_id, None, self._decryptor,
                            _NOTIFICATION_TYPES, _wrap_notification, timeout,
-                           _NOTIFICATION_TERMINAL, replay=replay, deleted_type=None)
+                           _NOTIFICATION_TERMINAL, replay=replay, entity_terminals={})
 
 
 @dataclass
@@ -1552,7 +1693,7 @@ class _TaskStream:
 
     def __init__(self, hub, root_id, subtask_id, decryptor,
                  want_types, wrap, timeout, terminal_types=frozenset(), replay=False,
-                 deleted_type=_TASK_DELETED, files=None):
+                 entity_terminals=None, files=None):
         self._hub = hub
         self._root_id = root_id
         self._subtask_id = subtask_id
@@ -1562,7 +1703,10 @@ class _TaskStream:
         self._timeout = timeout
         self._terminal = terminal_types
         self._replay = replay
-        self._deleted_type = deleted_type
+        # data.type -> marker factory for entity-wide terminals (deleted,
+        # canceled). None = the default table; pass {} for streams with no
+        # entity-wide terminal (notifications).
+        self._entity_terminals = _ENTITY_TERMINALS if entity_terminals is None else entity_terminals
         self._files = files  # _FileBinder | None — binds file handles to the client
 
     def __aiter__(self):
@@ -1575,11 +1719,11 @@ class _TaskStream:
 
     def _match(self, ev):
         """Return (item_to_yield_or_None, stop)."""
-        # The deletion event (taskDeleted) is entity-wide terminal — it ignores
-        # subtask scope. `deleted_type` is None for streams with no deletion
-        # event (notifications), where the guard must never fire.
-        if self._deleted_type is not None and ev.data_type == self._deleted_type:
-            return _deleted_marker(ev), True
+        # Entity-wide terminals (taskDeleted, taskCanceled) ignore subtask
+        # scope: a deleted or canceled root ends the chain's every stream.
+        factory = self._entity_terminals.get(ev.data_type)
+        if factory is not None:
+            return factory(ev, self._decryptor), True
         if not self._in_scope(ev):
             return None, False
         if ev.data_type in self._want:
