@@ -43,7 +43,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Protocol, overload
 from urllib.parse import quote
 
 import websockets
@@ -198,7 +198,8 @@ class Event:
 
     @classmethod
     def from_raw(cls, raw: dict) -> "Event":
-        data = raw.get("data") if isinstance(raw.get("data"), dict) else {}
+        raw_data = raw.get("data")
+        data = raw_data if isinstance(raw_data, dict) else {}
         input_uploaded = data.get("inputUploaded") or {}
         download_url = input_uploaded.get("downloadUrl")
         return cls(
@@ -262,6 +263,14 @@ class _DownloadTransport:
             raise DownloadError(f"file fetch failed: HTTP {e.code}", status_code=e.code) from e
 
 
+class _MarkerKeys(Protocol):
+    """What a file context needs from a decryptor (Keyring / OrgDecryptor /
+    Decryptor from the optional crypto extra, which this module can't import
+    at runtime): resolve an encryption marker to a raw key."""
+
+    def key_for_marker(self, marker) -> "bytes | None": ...
+
+
 @dataclass(frozen=True, slots=True)
 class _FileContext:
     """Everything a bound file handle needs to download itself: the client's
@@ -269,11 +278,11 @@ class _FileContext:
     files — subtask files resolve through the parent server-side; `submissions`/
     <submissionId> for submission files), the event's encryption marker, and the
     stream's decryptor for key resolution."""
-    transport: object
+    transport: "_DownloadTransport"
     scope: str
     scope_id: str
     marker: object
-    decryptor: object
+    decryptor: "_MarkerKeys | None"
 
 
 class _FileBinder:
@@ -305,6 +314,13 @@ class _DownloadableFile:
 
     __slots__ = ()
 
+    if TYPE_CHECKING:
+        # Supplied by the concrete dataclasses this is mixed into.
+        id: str | None
+        content_type: str | None
+        checksum_sha256: str | None
+        _ctx: "_FileContext | None"
+
     # Path segment of the download endpoint: "inputs" for input uploads,
     # "replies" for reply files (overridden on ReplyFile).
     _endpoint_kind = "inputs"
@@ -326,6 +342,7 @@ class _DownloadableFile:
         encrypted task the URL serves the raw AEAD ciphertext blob — prefer
         `read()` / `save()`, which verify the checksum and decrypt."""
         ctx = self._context()
+        assert self.id is not None  # a stream-yielded file always carries its id
         resp = await asyncio.to_thread(ctx.transport.presign, ctx.scope, ctx.scope_id, self._endpoint_kind, self.id)
         return resp.get("presignedGetUrl"), resp.get("expiresAt")
 
@@ -358,6 +375,7 @@ class _DownloadableFile:
         return await asyncio.to_thread(_fetch_and_write)
 
     def _read_sync(self, ctx: "_FileContext") -> bytes:
+        assert self.id is not None  # a stream-yielded file always carries its id
         resp = ctx.transport.presign(ctx.scope, ctx.scope_id, self._endpoint_kind, self.id)
         url = resp.get("presignedGetUrl")
         if not url:
@@ -762,6 +780,10 @@ def _marker_fingerprint(marker) -> str | None:
     return None
 
 
+@overload
+def _maybe_decrypt(value: str, marker, decryptor) -> str: ...
+@overload
+def _maybe_decrypt(value: None, marker, decryptor) -> None: ...
 def _maybe_decrypt(value, marker, decryptor):
     if value is None or decryptor is None or marker is None:
         return value
@@ -970,7 +992,7 @@ def _wrap_uploads(raw_uploads, marker, decryptor, files) -> list[Upload]:
             if (w := _wrap_upload(u, marker, decryptor, files)) is not None]
 
 
-def _wrap_input(ev: Event, decryptor, files) -> "InputEvent | TaskCompleted | SubtaskCompleted":
+def _wrap_input(ev: Event, decryptor, files) -> "InputEvent | TaskCompleted | SubtaskCompleted | SubtaskCanceled":
     """Wrap a task OR subtask input event. The completion events become the
     dedicated terminal markers; the rest become `InputEvent`."""
     data = ev.data
@@ -986,7 +1008,7 @@ def _wrap_input(ev: Event, decryptor, files) -> "InputEvent | TaskCompleted | Su
     if ev.data_type == _SUBTASK_CANCELED:
         return _subtask_canceled_marker(ev, decryptor)
     raw_uploads = [data["inputUploaded"]] if data.get("inputUploaded") else []
-    return InputEvent(type=ev.data_type, uploads=_wrap_uploads(raw_uploads, marker, decryptor, files), raw=ev)
+    return InputEvent(type=ev.data_type or "", uploads=_wrap_uploads(raw_uploads, marker, decryptor, files), raw=ev)
 
 
 def _wrap_notification_reply(reply: dict | None, marker, decryptor) -> "NotificationReply | None":

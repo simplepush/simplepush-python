@@ -33,7 +33,10 @@ def try_decrypt_event_data(event, keyring) -> dict | None:
     key = keyring.key_for_marker(marker)
     if key is None:
         return None
-    return _decrypt_in_place(copy.deepcopy(event.data), key)
+    # event.data is always a dict, so inline its branch of _decrypt_in_place
+    # (which would just run this same comprehension) to keep the return a dict.
+    data = copy.deepcopy(event.data)
+    return {k: _decrypt_in_place(v, key) for k, v in data.items()}
 
 
 def _decrypt_in_place(value, key: bytes):

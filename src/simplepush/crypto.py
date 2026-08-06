@@ -219,7 +219,8 @@ class OrgDecryptor:
         None. (Same shape as `Keyring.key_for_marker`.)"""
         if not isinstance(marker, dict) or marker.get("type") != "org":
             return None
-        return self._keys.get(marker.get("v"))
+        version = marker.get("v")
+        return None if version is None else self._keys.get(version)
 
     @property
     def current_version(self) -> int:
@@ -277,9 +278,11 @@ class Keyring:
         if not isinstance(marker, dict):
             return None
         if marker.get("type") == "personal":
-            return self._by_fingerprint.get(marker.get("keyFingerprint"))
+            fingerprint = marker.get("keyFingerprint")
+            return None if fingerprint is None else self._by_fingerprint.get(fingerprint)
         if marker.get("type") == "org":
-            return self._by_version.get(marker.get("v"))
+            version = marker.get("v")
+            return None if version is None else self._by_version.get(version)
         return None
 
     def try_decrypt_marker(self, ciphertext_b64: str, marker) -> str | None:

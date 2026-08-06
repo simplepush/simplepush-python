@@ -43,7 +43,13 @@ try:
         derive_key, encrypt, decrypt, key_fingerprint,
     )
     from .decrypt import try_decrypt_event_data, looks_like_ciphertext
-    __all__ += list(_CRYPTO_NAMES)
+    # Literal list (not `list(_CRYPTO_NAMES)`) so static checkers can follow
+    # the export list; keep it in sync with _CRYPTO_NAMES above.
+    __all__ += [
+        "Decryptor", "OrgDecryptor", "Keyring", "DerivedKey",
+        "derive_key", "encrypt", "decrypt", "key_fingerprint",
+        "try_decrypt_event_data", "looks_like_ciphertext",
+    ]
 except MissingCryptoExtra:
     # pynacl is absent: keep the crypto names out of the namespace (and out of
     # `__all__`, so `import *` stays clean), but make reaching for one say why

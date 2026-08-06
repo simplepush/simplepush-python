@@ -440,7 +440,11 @@ class _BaseClient:
         credential header (API-Token / Api-Key). Task/Subtask handles bind it
         into the file objects their streams yield."""
         if self._file_transport_obj is None:
-            headers = {"API-Token": self._api_token} if self._api_token else {"Api-Key": self._api_key}
+            if self._api_token:
+                headers = {"API-Token": self._api_token}
+            else:
+                assert self._api_key is not None  # a client always holds one credential
+                headers = {"Api-Key": self._api_key}
             self._file_transport_obj = _DownloadTransport(self._base, headers)
         return self._file_transport_obj
 
@@ -518,6 +522,7 @@ class _BaseClient:
 
     def _fetch_password_salt(self) -> str | None:
         """`GET /v1/user` (API-Token auth) → the account's password_salt."""
+        assert self._api_token is not None  # only reachable on API-Token clients
         req = urllib.request.Request(
             f"{self._base}/user",
             headers={"API-Token": self._api_token, "Accept": "application/json"},
@@ -796,6 +801,7 @@ class _BaseClient:
             from .crypto import encrypt
             version = self._org_decryptor.current_version
             key = self._org_decryptor.key_for_version(version)
+            assert key is not None  # the decryptor always holds its current version's key
             file_key = key  # local attachment bytes share the org master key
             if title is not None:
                 title = encrypt(title, key)
@@ -878,8 +884,8 @@ class _BaseClient:
             instance_tasks: list[Task] = []
             for inst in resp.get("instances") or []:
                 task_id = inst.get("taskId")
-                if task_id is not None:
-                    self._hub.register_entity(task_id, created_at)
+                assert task_id is not None  # every group instance carries its task id
+                self._hub.register_entity(task_id, created_at)
                 rec = inst.get("recipient") or {}
                 instance_tasks.append(Task(
                     task_id,
@@ -895,7 +901,7 @@ class _BaseClient:
             if prepared:
                 self._upload_files(headers, prepared, resp.get("attachments") or [])
             return TaskGroup(
-                resp.get("groupId"),
+                resp["groupId"],
                 created_at,
                 resp.get("groupWaitToken"),
                 self._hub,
@@ -907,13 +913,13 @@ class _BaseClient:
             )
 
         task_id = resp.get("taskId")
+        assert task_id is not None
         created_at = resp.get("createdAt")
         # Register before returning so the hub buffers this task's events from
         # now, even if the caller awaits the streams a moment later.
-        if task_id is not None:
-            self._hub.register_entity(task_id, created_at)
+        self._hub.register_entity(task_id, created_at)
         # Upload the local attachment bytes now that the task (and its rows) exist.
-        if task_id is not None and prepared:
+        if prepared:
             self._upload_files(headers, prepared, resp.get("attachments") or [])
         return Task(
             task_id,
@@ -1003,6 +1009,7 @@ class _BaseClient:
             from .crypto import encrypt
             version = self._org_decryptor.current_version
             key = self._org_decryptor.key_for_version(version)
+            assert key is not None  # the decryptor always holds its current version's key
             enc_key = key
             if title is not None:
                 title = encrypt(title, key)
@@ -1068,8 +1075,8 @@ class _BaseClient:
             instance_notifications: list[Notification] = []
             for inst in resp.get("instances") or []:
                 nid = inst.get("notificationId")
-                if nid is not None:
-                    self._hub.register_entity(nid, created_at)
+                assert nid is not None  # every group instance carries its notification id
+                self._hub.register_entity(nid, created_at)
                 rec = inst.get("recipient") or {}
                 instance_notifications.append(Notification(
                     nid,
@@ -1085,7 +1092,7 @@ class _BaseClient:
             if prepared_media is not None and created is not None:
                 self._upload_files(headers, [prepared_media], [created])
             return NotificationGroup(
-                resp.get("groupId"),
+                resp["groupId"],
                 created_at,
                 resp.get("groupWaitToken"),
                 self._hub,
@@ -1096,12 +1103,12 @@ class _BaseClient:
             )
 
         notification_id = resp.get("notificationId")
+        assert notification_id is not None
         created_at = resp.get("createdAt")
-        if notification_id is not None:
-            self._hub.register_entity(notification_id, created_at)
+        self._hub.register_entity(notification_id, created_at)
         # Upload the media file's bytes now that the notification (+ its file row) exists.
         created = resp.get("mediaAttachment")
-        if notification_id is not None and prepared_media is not None and created is not None:
+        if prepared_media is not None and created is not None:
             self._upload_files(headers, [prepared_media], [created])
         return Notification(
             notification_id,
@@ -1215,6 +1222,7 @@ class _BaseClient:
             from .crypto import encrypt
             version = self._org_decryptor.current_version
             key = self._org_decryptor.key_for_version(version)
+            assert key is not None  # the decryptor always holds its current version's key
             file_key = key  # local attachment bytes share the org master key
             if title is not None:
                 title = encrypt(title, key)
@@ -1294,6 +1302,7 @@ class _BaseClient:
         headers = {"Api-Key": self._api_key} if self._api_key else {"API-Token": self._api_token}
         resp = self._post("/subtasks/json", body, headers) or {}
         subtask_id = resp.get("subtaskId")
+        assert subtask_id is not None
         created_at = resp.get("createdAt")
         if prepared:
             self._upload_files(headers, prepared, resp.get("attachments") or [])
@@ -1340,9 +1349,9 @@ class _BaseClient:
         subtasks: list[Subtask] = []
         for ref in resp.get("subtasks") or []:
             parent_task_id = ref.get("taskId")
+            assert parent_task_id is not None
             # Subtask events route to each member chain's root buffer.
-            if parent_task_id is not None:
-                self._hub.register_entity(parent_task_id, created_at)
+            self._hub.register_entity(parent_task_id, created_at)
             subtasks.append(Subtask(
                 ref.get("subtaskId"),
                 parent_task_id,
@@ -1377,7 +1386,9 @@ class _BaseClient:
             elif self._org_decryptor is not None:
                 from .crypto import encrypt
                 version = self._org_decryptor.current_version
-                note = encrypt(note, self._org_decryptor.key_for_version(version))
+                key = self._org_decryptor.key_for_version(version)
+                assert key is not None  # the decryptor always holds its current version's key
+                note = encrypt(note, key)
                 body["encryption"] = {"type": "org", "v": version}
             body["note"] = note
         if superseded_by is not None:
