@@ -43,10 +43,17 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import quote
 
 import websockets
 import websockets.exceptions
+
+if TYPE_CHECKING:
+    # Type-only: api.py imports from this module at runtime, so a real import
+    # here would be circular. The enum-or-Literal unions below give static
+    # checkers the closed vocabulary while runtime keeps accepting plain str.
+    from .api import CancelReason, ContentFormat, ReplyMode
 
 
 class StreamError(Exception):
@@ -1286,7 +1293,9 @@ class Task:
     def append(self, *, title: str | None = None, content: str | None = None,
                inputs=None, links: list[str] | None = None,
                files: "list[str | os.PathLike] | None" = None,
-               auto_commit: bool = True, critical: bool = False, reply=None, content_format=None) -> "Subtask":
+               auto_commit: bool = True, critical: bool = False,
+               reply: "ReplyMode | Literal['one-shot', 'sticky', 'one-time-per-user'] | None" = None,
+               content_format: "ContentFormat | Literal['plain', 'markdown'] | None" = None) -> "Subtask":
         """Append a subtask to this task's chain and return a `Subtask` handle.
         The subtask inherits the parent's recipients (no targeting) and, when the
         parent was sent with a password, its encryption.
@@ -1303,7 +1312,8 @@ class Task:
             content_format=content_format,
         )
 
-    def cancel(self, *, reason: str = "canceled", note: str | None = None,
+    def cancel(self, *, reason: "CancelReason | Literal['canceled', 'answered', 'superseded']" = "canceled",
+               note: str | None = None,
                superseded_by: "str | Task | None" = None) -> None:
         """Cancel this pending task (sender-side withdrawal). Recipients see the
         card flip to canceled; a collector's `inputs()`/`replies()` stream ends
@@ -1455,8 +1465,9 @@ class TaskGroup:
                inputs=None, links: "list[str] | None" = None,
                files: "list[str | os.PathLike] | None" = None,
                instances: "list[str | Task] | None" = None,
-               auto_commit: bool = True, critical: bool = False, reply=None,
-               content_format=None) -> "list[Subtask]":
+               auto_commit: bool = True, critical: bool = False,
+               reply: "ReplyMode | Literal['one-shot', 'sticky', 'one-time-per-user'] | None" = None,
+               content_format: "ContentFormat | Literal['plain', 'markdown'] | None" = None) -> "list[Subtask]":
         """Append a subtask to every member instance's chain atomically — or
         only to the instances named in `instances` (task ids or `Task` handles
         from this group). Returns one `Subtask` handle per appended member.
@@ -1476,7 +1487,8 @@ class TaskGroup:
             reply=reply, content_format=content_format,
         )
 
-    def cancel(self, *, reason: str = "canceled", note: str | None = None,
+    def cancel(self, *, reason: "CancelReason | Literal['canceled', 'answered', 'superseded']" = "canceled",
+               note: str | None = None,
                superseded_by: "str | TaskGroup | None" = None) -> "GroupCancelResult":
         """Cancel every still-pending member instance (cancel-the-rest:
         `reason=CancelReason.ANSWERED` after one member's answer). Completed/canceled
@@ -1545,7 +1557,8 @@ class Subtask:
                            frozenset({_SUBTASK_CANCELED}), replay=replay,
                            files=self._file_binder())
 
-    def cancel(self, *, reason: str = "canceled", note: str | None = None,
+    def cancel(self, *, reason: "CancelReason | Literal['canceled', 'answered', 'superseded']" = "canceled",
+               note: str | None = None,
                superseded_by: "str | Subtask | None" = None) -> None:
         """Cancel this pending follow-up while the chain stays live. `reason`
         is a `CancelReason` (or its string value); the replacement named by

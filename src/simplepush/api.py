@@ -47,6 +47,7 @@ import urllib.error
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
 from enum import Enum
+from typing import Literal
 
 from .client import (
     Event, GroupCancelResult, InputEvent, Notification, NotificationGroup,
@@ -124,7 +125,7 @@ class Action:
     only ciphertext in either direction and cannot correlate the two."""
     key: str
     label: str
-    style: "ActionStyle | str | None" = None
+    style: ActionStyle | Literal["default", "primary", "destructive"] | None = None
 
     def to_dict(self) -> dict:
         d: dict = {"key": self.key, "label": self.label}
@@ -571,8 +572,8 @@ class _BaseClient:
         password: str | None = None,
         tag: str | None = None,
         critical: bool = False,
-        reply: "ReplyMode | str | None" = None,
-        content_format: "ContentFormat | str | None" = None,
+        reply: ReplyMode | Literal["one-shot", "sticky", "one-time-per-user"] | None = None,
+        content_format: ContentFormat | Literal["plain", "markdown"] | None = None,
         shared: bool = False,
     ) -> "Task | TaskGroup":
         """Send a task and return a handle to its event streams.
@@ -654,7 +655,7 @@ class _BaseClient:
         password: str | None = None,
         tag: str | None = None,
         critical: bool = False,
-        content_format: "ContentFormat | str | None" = None,
+        content_format: ContentFormat | Literal["plain", "markdown"] | None = None,
         shared: bool = False,
     ) -> "Notification | NotificationGroup":
         """Send a notification and return a handle to its event stream.
