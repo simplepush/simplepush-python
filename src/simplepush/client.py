@@ -131,8 +131,9 @@ _INPUT_TYPES = frozenset({
     "taskInputUploaded",
     "taskInputCompleted",
     "taskCompleted",
+    "taskDeclinedByRecipient",
 })
-_REPLY_TYPES = frozenset({"replyAppended"})
+_REPLY_TYPES = frozenset({"replyAppended", "taskDeclinedByRecipient"})
 # Terminal for the inputs() stream: taskCompleted carries the full committed
 # input set, after which no further inputs arrive. It's yielded, then iteration
 # ends. (Not terminal for replies(), which can continue under a sticky composer.)
@@ -145,14 +146,31 @@ _INPUT_TERMINAL = frozenset({"taskCompleted"})
 _TASK_CANCELED = "taskCanceled"
 _SUBTASK_CANCELED = "subtaskCanceled"
 
+# Recipient-side decline events. `taskDeclined` (every recipient has declined,
+# status flipped) is entity-wide terminal like `taskCanceled`;
+# `taskDeclinedByRecipient` is a per-recipient SIGNAL, not a terminal — in
+# shared mode the task stays live for the other recipients, so it's yielded
+# mid-stream and a collector can count declines down. Independent-mode
+# instances have a single recipient, so the terminal `taskDeclined` follows it
+# in the same transaction.
+_TASK_DECLINED = "taskDeclined"
+_TASK_DECLINED_BY_RECIPIENT = "taskDeclinedByRecipient"
+# Subtask mirrors, SCOPED like subtaskCanceled: one recipient refused THIS
+# follow-up (signal) / every recipient has (scoped terminal); the rest of the
+# chain stays live.
+_SUBTASK_DECLINED = "subtaskDeclined"
+_SUBTASK_DECLINED_BY_RECIPIENT = "subtaskDeclinedByRecipient"
+
 # Subtask equivalents (events carry subtaskId + parentTaskId).
 _SUBTASK_INPUT_TYPES = frozenset({
     "subtaskInputUploaded",
     "subtaskInputCompleted",
     "subtaskCompleted",
     _SUBTASK_CANCELED,
+    _SUBTASK_DECLINED_BY_RECIPIENT,
+    _SUBTASK_DECLINED,
 })
-_SUBTASK_INPUT_TERMINAL = frozenset({"subtaskCompleted", _SUBTASK_CANCELED})
+_SUBTASK_INPUT_TERMINAL = frozenset({"subtaskCompleted", _SUBTASK_CANCELED, _SUBTASK_DECLINED})
 
 # A notification emits exactly one event (`notificationCompleted`, carrying the
 # recipient's single answer); there is no input-upload lifecycle and no deletion
@@ -705,12 +723,103 @@ def _subtask_canceled_marker(ev: Event, decryptor=None) -> SubtaskCanceled:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class TaskDeclinedByRecipient:
+    """One recipient declined ("no answer is coming from me") — yielded
+    MID-STREAM in a task's `inputs()` / `replies()` stream, NOT a terminal:
+    in shared mode the task stays live for the other recipients, so a
+    collector can count declines down. When the last recipient declines, the
+    terminal `TaskDeclined` follows (same transaction backend-side). `reason`
+    is `declined` or `failed` ("tried and couldn't"); `note` is the
+    recipient's free-text context, decrypted where its key is held; `actor`
+    is the decliner's identity snapshot (publicId / name / device) as sent by
+    the backend."""
+    task_id: str | None
+    reason: str | None
+    note: str | None
+    actor: dict | None
+    created_at: str | None
+    raw: Event
+
+
+def _declined_by_recipient_marker(ev: Event, decryptor=None) -> TaskDeclinedByRecipient:
+    return TaskDeclinedByRecipient(
+        task_id=ev.routing_id,
+        reason=ev.data.get("reason"),
+        # Envelope marker = the note's own marker; see _canceled_marker.
+        note=_maybe_decrypt(ev.data.get("note"), ev.raw.get("encryption"), decryptor),
+        actor=ev.actor,
+        created_at=ev.created_at,
+        raw=ev,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class TaskDeclined:
+    """Terminal marker yielded as the final item of a task's `inputs()` /
+    `replies()` stream (and every subtask stream of the chain) when EVERY
+    recipient has declined — the recipient-side mirror of `TaskCanceled`.
+    Collective: per-recipient reasons/notes arrived on the preceding
+    `TaskDeclinedByRecipient` items. Iteration ends immediately after it."""
+    task_id: str | None
+    created_at: str | None
+    raw: Event
+
+
+def _declined_marker(ev: Event, decryptor=None) -> TaskDeclined:
+    return TaskDeclined(task_id=ev.routing_id, created_at=ev.created_at, raw=ev)
+
+
+@dataclass(frozen=True, slots=True)
+class SubtaskDeclinedByRecipient:
+    """One recipient refused THIS follow-up — the subtask-scoped twin of
+    `TaskDeclinedByRecipient`: a mid-stream signal, not a terminal (in shared
+    mode the subtask stays live for the others; the chain always stays live)."""
+    subtask_id: str | None
+    parent_task_id: str | None
+    reason: str | None
+    note: str | None
+    actor: dict | None
+    created_at: str | None
+    raw: Event
+
+
+def _subtask_declined_by_recipient_marker(ev: Event, decryptor=None) -> SubtaskDeclinedByRecipient:
+    return SubtaskDeclinedByRecipient(
+        subtask_id=ev.subtask_id,
+        parent_task_id=ev.task_id,
+        reason=ev.data.get("reason"),
+        # Envelope marker = the note's own marker; see _canceled_marker.
+        note=_maybe_decrypt(ev.data.get("note"), ev.raw.get("encryption"), decryptor),
+        actor=ev.actor,
+        created_at=ev.created_at,
+        raw=ev,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class SubtaskDeclined:
+    """Scoped terminal for ONE subtask's `inputs()` / `replies()` stream when
+    every recipient declined that follow-up — the decline-side twin of
+    `SubtaskCanceled`. The rest of the chain stays live."""
+    subtask_id: str | None
+    parent_task_id: str | None
+    created_at: str | None
+    raw: Event
+
+
+def _subtask_declined_marker(ev: Event, decryptor=None) -> SubtaskDeclined:
+    return SubtaskDeclined(subtask_id=ev.subtask_id, parent_task_id=ev.task_id,
+                           created_at=ev.created_at, raw=ev)
+
+
 # Entity-wide terminal events: they ignore subtask scope, so one of these ends
 # the root's streams AND every subtask stream of the chain. Maps data.type to
 # the marker factory yielded as the stream's final item.
 _ENTITY_TERMINALS = {
     _TASK_DELETED: _deleted_marker,
     _TASK_CANCELED: _canceled_marker,
+    _TASK_DECLINED: _declined_marker,
 }
 
 
@@ -922,10 +1031,17 @@ def _wrap_reply_location(loc: dict | None, marker, decryptor) -> Location | None
     )
 
 
-def _wrap_reply(ev: Event, decryptor, files) -> "Reply | SubtaskCanceled":
+def _wrap_reply(ev: Event, decryptor, files) -> "Reply | SubtaskCanceled | TaskDeclinedByRecipient":
     # A subtask reply stream also wants its own cancel (scoped terminal).
     if ev.data_type == _SUBTASK_CANCELED:
         return _subtask_canceled_marker(ev, decryptor)
+    # Per-recipient declines are mid-stream signals, not terminals.
+    if ev.data_type == _TASK_DECLINED_BY_RECIPIENT:
+        return _declined_by_recipient_marker(ev, decryptor)
+    if ev.data_type == _SUBTASK_DECLINED_BY_RECIPIENT:
+        return _subtask_declined_by_recipient_marker(ev, decryptor)
+    if ev.data_type == _SUBTASK_DECLINED:
+        return _subtask_declined_marker(ev, decryptor)
     reply = ev.data.get("reply") or {}
     marker = reply.get("encryption")
     ctx = files.bind(marker) if files is not None else None
@@ -992,7 +1108,7 @@ def _wrap_uploads(raw_uploads, marker, decryptor, files) -> list[Upload]:
             if (w := _wrap_upload(u, marker, decryptor, files)) is not None]
 
 
-def _wrap_input(ev: Event, decryptor, files) -> "InputEvent | TaskCompleted | SubtaskCompleted | SubtaskCanceled":
+def _wrap_input(ev: Event, decryptor, files) -> "InputEvent | TaskCompleted | SubtaskCompleted | SubtaskCanceled | TaskDeclinedByRecipient":
     """Wrap a task OR subtask input event. The completion events become the
     dedicated terminal markers; the rest become `InputEvent`."""
     data = ev.data
@@ -1007,6 +1123,13 @@ def _wrap_input(ev: Event, decryptor, files) -> "InputEvent | TaskCompleted | Su
                                 raw=ev)
     if ev.data_type == _SUBTASK_CANCELED:
         return _subtask_canceled_marker(ev, decryptor)
+    # Per-recipient declines are mid-stream signals, not terminals.
+    if ev.data_type == _TASK_DECLINED_BY_RECIPIENT:
+        return _declined_by_recipient_marker(ev, decryptor)
+    if ev.data_type == _SUBTASK_DECLINED_BY_RECIPIENT:
+        return _subtask_declined_by_recipient_marker(ev, decryptor)
+    if ev.data_type == _SUBTASK_DECLINED:
+        return _subtask_declined_marker(ev, decryptor)
     raw_uploads = [data["inputUploaded"]] if data.get("inputUploaded") else []
     return InputEvent(type=ev.data_type or "", uploads=_wrap_uploads(raw_uploads, marker, decryptor, files), raw=ev)
 
@@ -1291,7 +1414,7 @@ class Task:
         Photo/voice/file uploads on the yielded events are downloadable:
         `await upload.read()` / `await upload.save(path)`.
 
-        Yields: InputEvent | TaskCompleted | TaskDeleted | TaskCanceled
+        Yields: InputEvent | TaskCompleted | TaskDeleted | TaskCanceled | TaskDeclinedByRecipient | TaskDeclined
         """
         return _TaskStream(self._hub, self.task_id, None, self._decryptor,
                            _INPUT_TYPES, _wrap_input, timeout, _INPUT_TERMINAL, replay=replay,
@@ -1306,7 +1429,7 @@ class Task:
         A reply's `photo` / `file` are downloadable: `await reply.photo.read()`
         / `await reply.photo.save(path)`.
 
-        Yields: Reply | TaskDeleted | TaskCanceled
+        Yields: Reply | TaskDeleted | TaskCanceled | TaskDeclinedByRecipient | TaskDeclined
         """
         return _TaskStream(self._hub, self.task_id, None, self._decryptor,
                            _REPLY_TYPES, _wrap_reply, timeout, frozenset(), replay=replay,
@@ -1360,7 +1483,7 @@ class GroupReply:
     it arrived on. `recipient` is a shortcut to `instance.recipient`: who
     replied."""
     instance: "Task"
-    item: "Reply | TaskDeleted | TaskCanceled"
+    item: "Reply | TaskDeleted | TaskCanceled | TaskDeclinedByRecipient | TaskDeclined"
 
     @property
     def recipient(self) -> "TaskGroupRecipient | None":
@@ -1375,7 +1498,7 @@ class GroupInput:
     with the member `instance` it arrived on. `recipient` is a shortcut to
     `instance.recipient`: whose input it is."""
     instance: "Task"
-    item: "InputEvent | TaskCompleted | TaskDeleted | TaskCanceled"
+    item: "InputEvent | TaskCompleted | TaskDeleted | TaskCanceled | TaskDeclinedByRecipient | TaskDeclined"
 
     @property
     def recipient(self) -> "TaskGroupRecipient | None":
@@ -1557,7 +1680,7 @@ class Subtask:
         Photo/voice/file uploads on the yielded events are downloadable:
         `await upload.read()` / `await upload.save(path)`.
 
-        Yields: InputEvent | SubtaskCompleted | SubtaskCanceled | TaskDeleted | TaskCanceled
+        Yields: InputEvent | SubtaskCompleted | SubtaskCanceled | TaskDeleted | TaskCanceled | TaskDeclined | SubtaskDeclinedByRecipient | SubtaskDeclined
         """
         return _TaskStream(self._hub, self.parent_task_id, self.subtask_id, self._decryptor,
                            _SUBTASK_INPUT_TYPES, _wrap_input, timeout, _SUBTASK_INPUT_TERMINAL,
@@ -1572,11 +1695,12 @@ class Subtask:
         A reply's `photo` / `file` are downloadable: `await reply.photo.read()`
         / `await reply.photo.save(path)`.
 
-        Yields: Reply | TaskDeleted | TaskCanceled | SubtaskCanceled
+        Yields: Reply | TaskDeleted | TaskCanceled | SubtaskCanceled | TaskDeclined | SubtaskDeclinedByRecipient | SubtaskDeclined
         """
         return _TaskStream(self._hub, self.parent_task_id, self.subtask_id, self._decryptor,
-                           _REPLY_TYPES | {_SUBTASK_CANCELED}, _wrap_reply, timeout,
-                           frozenset({_SUBTASK_CANCELED}), replay=replay,
+                           _REPLY_TYPES | {_SUBTASK_CANCELED, _SUBTASK_DECLINED_BY_RECIPIENT, _SUBTASK_DECLINED},
+                           _wrap_reply, timeout,
+                           frozenset({_SUBTASK_CANCELED, _SUBTASK_DECLINED}), replay=replay,
                            files=self._file_binder())
 
     def cancel(self, *, reason: "CancelReason | Literal['canceled', 'answered', 'superseded']" = "canceled",
