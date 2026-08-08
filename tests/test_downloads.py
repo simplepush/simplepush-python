@@ -272,9 +272,11 @@ class WrapBindingTest(unittest.IsolatedAsyncioTestCase):
                 self.fail("pattern match failed")
 
 
-def _reply_event(reply: dict) -> Event:
-    return Event.from_raw({"data": {"type": "replyAppended", "taskId": "root-task",
-                                    "reply": reply}})
+def _reply_event(reply: dict, encryption: dict | None = None) -> Event:
+    raw = {"data": {"type": "replyAppended", "taskId": "root-task", "reply": reply}}
+    if encryption is not None:
+        raw["encryption"] = encryption
+    return Event.from_raw(raw)
 
 
 class ReplyLocationTest(unittest.IsolatedAsyncioTestCase):
@@ -317,7 +319,7 @@ class EncryptedReplyLocationTest(unittest.IsolatedAsyncioTestCase):
                   "timestamp": 1700000001000}
         ciphertext = encrypt(json.dumps(coords), dk.symmetric_key)
         marker = {"type": "personal", "keyFingerprint": dk.fingerprint}
-        ev = _reply_event({"id": "r-loc-3", "encryption": marker,
+        ev = _reply_event(encryption=marker, reply={"id": "r-loc-3",
                            "location": {"encrypted": ciphertext}})
         reply = _wrap_reply(ev, keyring, None)
         self.assertIsInstance(reply.location, Location)
@@ -333,7 +335,7 @@ class EncryptedReplyLocationTest(unittest.IsolatedAsyncioTestCase):
         ciphertext = encrypt(json.dumps({"latitude": 1.0, "longitude": 2.0}),
                              dk.symmetric_key)
         marker = {"type": "personal", "keyFingerprint": "wrong"}
-        ev = _reply_event({"id": "r-loc-4", "encryption": marker,
+        ev = _reply_event(encryption=marker, reply={"id": "r-loc-4",
                            "location": {"encrypted": ciphertext}})
         keyring = Keyring.build(passwords=["other"], topics=["t"])
         reply = _wrap_reply(ev, keyring, None)

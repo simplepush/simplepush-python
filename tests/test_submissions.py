@@ -52,9 +52,12 @@ class StubTransport:
         return self.blob
 
 
-def _event(submission: dict) -> Event:
-    return Event.from_raw({"eventType": "SubmissionCreated",
-                           "data": {"type": "submissionCreated", "submission": submission}})
+def _event(submission: dict, encryption: dict | None = None) -> Event:
+    raw = {"eventType": "SubmissionCreated",
+           "data": {"type": "submissionCreated", "submission": submission}}
+    if encryption is not None:
+        raw["encryption"] = encryption
+    return Event.from_raw(raw)
 
 
 class WrapSubmissionTest(unittest.IsolatedAsyncioTestCase):
@@ -132,13 +135,13 @@ class EncryptedSubmissionTest(unittest.IsolatedAsyncioTestCase):
         keyring = Keyring.build(passwords=[password], topics=[topic])
         ciphertext = encrypt("classified", dk.symmetric_key)
         marker = {"type": "personal", "keyFingerprint": dk.fingerprint}
-        ev = _event({"id": "sbm-6", "body": {"type": "text", "value": ciphertext}, "encryption": marker})
+        ev = _event({"id": "sbm-6", "body": {"type": "text", "value": ciphertext}}, encryption=marker)
         sub = _wrap_submission(ev, keyring, None)
         self.assertEqual(sub.body, TextBody(text="classified"))
 
     def test_body_without_key_passes_ciphertext_through(self):
         marker = {"type": "personal", "keyFingerprint": "unknown"}
-        ev = _event({"id": "sbm-7", "body": {"type": "text", "value": "ciphertext-blob"}, "encryption": marker})
+        ev = _event({"id": "sbm-7", "body": {"type": "text", "value": "ciphertext-blob"}}, encryption=marker)
         keyring = Keyring.build(passwords=["other"], topics=["t"])
         sub = _wrap_submission(ev, keyring, None)
         self.assertEqual(sub.body, TextBody(text="ciphertext-blob"))
@@ -314,8 +317,7 @@ class SubmissionLocationTest(unittest.IsolatedAsyncioTestCase):
         ev = _event({
             "id": "sbm-loc-2",
             "location": {"encrypted": ciphertext},
-            "encryption": marker,
-        })
+        }, encryption=marker)
         sub = _wrap_submission(ev, keyring, None)
         self.assertIsInstance(sub.location, Location)
         self.assertEqual(sub.location.latitude, 40.7128)
@@ -336,8 +338,7 @@ class SubmissionLocationTest(unittest.IsolatedAsyncioTestCase):
         ev = _event({
             "id": "sbm-loc-3",
             "location": {"encrypted": ciphertext},
-            "encryption": marker,
-        })
+        }, encryption=marker)
         keyring = Keyring.build(passwords=["other"], topics=["t"])
         sub = _wrap_submission(ev, keyring, None)
         self.assertIsNone(sub.location)

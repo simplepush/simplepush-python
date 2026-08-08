@@ -1043,7 +1043,7 @@ def _wrap_reply(ev: Event, decryptor, files) -> "Reply | SubtaskCanceled | TaskD
     if ev.data_type == _SUBTASK_DECLINED:
         return _subtask_declined_marker(ev, decryptor)
     reply = ev.data.get("reply") or {}
-    marker = reply.get("encryption")
+    marker = ev.raw.get("encryption")
     ctx = files.bind(marker) if files is not None else None
     return Reply(
         id=reply.get("id"),
@@ -1087,7 +1087,7 @@ def _wrap_submission_audio(a: dict | None, ctx) -> SubmissionAudio | None:
 
 def _wrap_submission(ev: Event, decryptor, files) -> Submission:
     submission = ev.data.get("submission") or {}
-    marker = submission.get("encryption")
+    marker = ev.raw.get("encryption")
     # Each submission carries its own id; bind the file context to it (the
     # binder's scope is `submissions`, scope_id is per-event).
     ctx = files.bind(marker, scope_id=submission.get("id")) if files is not None else None
