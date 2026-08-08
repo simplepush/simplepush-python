@@ -904,6 +904,11 @@ def _maybe_decrypt(value, marker, decryptor):
 
 
 def _wrap_upload(u: dict, marker, decryptor, files) -> Upload | None:
+    # An upload record carrying its own marker (the aggregate completion
+    # events) wins over the caller's envelope marker (the single-answer
+    # events): answers may be sealed under different keys than the task's
+    # (org rotation), so the record is authoritative when present.
+    marker = u.get("encryption") or marker
     t = u.get("type")
     if t == "textUploaded":
         return TextUpload(id=u.get("id"),
