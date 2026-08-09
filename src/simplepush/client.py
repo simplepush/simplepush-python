@@ -161,6 +161,11 @@ _TASK_DECLINED_BY_RECIPIENT = "taskDeclinedByRecipient"
 _SUBTASK_DECLINED = "subtaskDeclined"
 _SUBTASK_DECLINED_BY_RECIPIENT = "subtaskDeclinedByRecipient"
 
+# The task's sender-set deadline passed unanswered — the clock's terminal,
+# entity-wide like `taskCanceled` (an expired root closes the whole chain).
+# Collective: no actor, no note; the deadline lives on the task payload.
+_TASK_EXPIRED = "taskExpired"
+
 # Subtask equivalents (events carry subtaskId + parentTaskId).
 _SUBTASK_INPUT_TYPES = frozenset({
     "subtaskInputUploaded",
@@ -813,6 +818,22 @@ def _subtask_declined_marker(ev: Event, decryptor=None) -> SubtaskDeclined:
                            created_at=ev.created_at, raw=ev)
 
 
+@dataclass(frozen=True, slots=True)
+class TaskExpired:
+    """Terminal marker yielded as the final item of a task's `inputs()` /
+    `replies()` stream (and every subtask stream of the chain) when the
+    sender-set deadline passed with the task still pending — the clock's
+    mirror of `TaskCanceled`. Collective (no actor, no note; the deadline is
+    on the task payload). Iteration ends immediately after it."""
+    task_id: str | None
+    created_at: str | None
+    raw: Event
+
+
+def _expired_marker(ev: Event, decryptor=None) -> TaskExpired:
+    return TaskExpired(task_id=ev.routing_id, created_at=ev.created_at, raw=ev)
+
+
 # Entity-wide terminal events: they ignore subtask scope, so one of these ends
 # the root's streams AND every subtask stream of the chain. Maps data.type to
 # the marker factory yielded as the stream's final item.
@@ -820,6 +841,7 @@ _ENTITY_TERMINALS = {
     _TASK_DELETED: _deleted_marker,
     _TASK_CANCELED: _canceled_marker,
     _TASK_DECLINED: _declined_marker,
+    _TASK_EXPIRED: _expired_marker,
 }
 
 

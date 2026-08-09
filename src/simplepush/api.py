@@ -38,6 +38,7 @@ Org access uses OrgClient (authenticated by the org Api-Key), which adds the
 """
 
 import base64
+import datetime
 import hashlib
 import json
 import mimetypes
@@ -55,6 +56,20 @@ from .client import (
     TaskGroup, TaskGroupRecipient,
     _DownloadTransport, _FileBinder, _Hub,
 )
+
+
+# --- Wire serialization helpers ---
+
+def _expires_at_wire(value) -> str:
+    """Serialize a task deadline to wire ISO-8601. A naive datetime is
+    rejected rather than guessed at — the server compares against UTC."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, datetime.datetime):
+        if value.tzinfo is None:
+            raise ValueError("expires_at datetime must be timezone-aware")
+        return value.astimezone(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+    raise TypeError("expires_at must be a datetime or an ISO-8601 string")
 
 
 # --- Input types ---
@@ -580,6 +595,7 @@ class _BaseClient:
         reply: ReplyMode | Literal["one-shot", "sticky", "one-time-per-user"] | None = None,
         content_format: ContentFormat | Literal["plain", "markdown"] | None = None,
         shared: bool = False,
+        expires_at: "datetime.datetime | str | None" = None,
     ) -> "Task | TaskGroup":
         """Send a task and return a handle to its event streams.
 
@@ -625,6 +641,11 @@ class _BaseClient:
                    Plaintext marker (never encrypted); omit for plain.
             shared: Shared mode — one task all recipients share, returned
                    as a `Task`. Default False (independent instances, `TaskGroup`).
+            expires_at: Optional deadline (a `datetime` — naive values are
+                   rejected — or an ISO-8601 string; must lie in the future).
+                   Plaintext metadata. Past it, an unanswered task expires:
+                   the terminal `TaskExpired` ends its streams and further
+                   answers are rejected with `task_expired`.
 
         Returns:
             A `TaskGroup` of per-recipient `Task` instances (default), or a
@@ -644,6 +665,7 @@ class _BaseClient:
             password=password if password is not None else self._send_password(topic),
             tag=tag, critical=critical, reply=reply,
             content_format=content_format, shared=shared,
+            expires_at=expires_at,
         )
 
     def send_notification(
@@ -735,7 +757,8 @@ class _BaseClient:
                      title=None, content=None, inputs=None, links=None,
                      files=None,
                      auto_commit=True, password=None, tag=None, critical=False,
-                     reply=None, content_format=None, shared=False) -> "Task | TaskGroup":
+                     reply=None, content_format=None, shared=False,
+                     expires_at=None) -> "Task | TaskGroup":
         if not content and not inputs:
             raise ValueError("Either content or inputs must be provided")
         target_count = sum((topic is not None, member is not None, bool(broadcast)))
@@ -869,6 +892,8 @@ class _BaseClient:
             body["encryption"] = encryption_dict
         if shared:
             body["shared"] = True
+        if expires_at is not None:
+            body["expiresAt"] = _expires_at_wire(expires_at)
 
         # Org sends authenticate with the Api-Key; personal sends require the
         # API-Token (the server uses it to own the task's attachments).
