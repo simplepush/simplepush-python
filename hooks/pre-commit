@@ -1,0 +1,12 @@
+#!/bin/sh
+# Commit gate: the SDK must be pyright-clean. Checks the whole working tree,
+# not just staged files — pyright type-checks the package as a unit, and a
+# clean staged subset of an unclean tree still ships broken types eventually.
+#
+# One-time setup per clone (points git at this versioned hooks dir):
+#   git config core.hooksPath hooks
+echo "pre-commit: pyright src/simplepush"
+if ! npx --yes pyright src/simplepush; then
+  echo "pre-commit: pyright is not clean; commit blocked (use --no-verify to override)." >&2
+  exit 1
+fi
