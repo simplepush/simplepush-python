@@ -37,7 +37,7 @@ def make_client(responses, calls, *, passwords=None):
     client = Client("localhost", 8000, ssl=False, api_token="tok", passwords=passwords)
     queue = list(responses)
 
-    def fake_post(path, body, headers=None):
+    def fake_post(path, body, headers=None, **kwargs):
         calls.append((path, body, headers))
         return queue.pop(0)
 

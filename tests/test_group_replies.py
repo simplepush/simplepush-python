@@ -42,7 +42,7 @@ def make_group(response=GROUP_RESPONSE):
     """A group handle whose hub never opens a socket: `_post` is canned and the
     hub runner is stubbed to a no-op so streams attach but nothing connects."""
     client = Client("localhost", 8000, ssl=False, api_token="tok")
-    client._post = lambda path, body, headers=None: response
+    client._post = lambda path, body, headers=None, **kwargs: response
 
     async def _noop():
         return None

@@ -43,8 +43,10 @@ import hashlib
 import json
 import mimetypes
 import os
+import time
 import urllib.request
 import urllib.error
+import uuid
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -898,7 +900,8 @@ class _BaseClient:
         # Org sends authenticate with the Api-Key; personal sends require the
         # API-Token (the server uses it to own the task's attachments).
         headers = {"Api-Key": self._api_key} if self._api_key else {"API-Token": self._api_token}
-        resp = self._post("/tasks/json", body, headers) or {}
+        body.setdefault("idempotencyKey", self._mint_idempotency_key())
+        resp = self._post("/tasks/json", body, headers, retry=True) or {}
 
         # Independent mode (the default) answers with the group shape: one task
         # instance per recipient plus group-level tokens. The sender's local
@@ -1089,7 +1092,8 @@ class _BaseClient:
         # identifies the sender, and owns + quotas any media file). Mirrors the
         # task/subtask create headers.
         headers = {"Api-Key": self._api_key} if self._api_key else {"API-Token": self._api_token}
-        resp = self._post("/notifications/json", payload, headers) or {}
+        payload.setdefault("idempotencyKey", self._mint_idempotency_key())
+        resp = self._post("/notifications/json", payload, headers, retry=True) or {}
 
         # Independent mode (the default) answers with the group shape: one
         # notification instance per recipient plus group-level tokens. The single
@@ -1325,7 +1329,8 @@ class _BaseClient:
         # local attachments require the API-Token so the server can own the
         # subtask's attachments (harmless to send it when there are none).
         headers = {"Api-Key": self._api_key} if self._api_key else {"API-Token": self._api_token}
-        resp = self._post("/subtasks/json", body, headers) or {}
+        data.setdefault("idempotencyKey", self._mint_idempotency_key())
+        resp = self._post("/subtasks/json", body, headers, retry=True) or {}
         subtask_id = resp.get("subtaskId")
         assert subtask_id is not None
         created_at = resp.get("createdAt")
@@ -1365,7 +1370,8 @@ class _BaseClient:
         if instances is not None:
             body["instances"] = list(instances)
         headers = {"Api-Key": self._api_key} if self._api_key else {"API-Token": self._api_token}
-        resp = self._post("/subtasks/json", body, headers) or {}
+        data.setdefault("idempotencyKey", self._mint_idempotency_key())
+        resp = self._post("/subtasks/json", body, headers, retry=True) or {}
         # ONE upload pass for the whole batch (an empty group mints nothing —
         # the server returns no attachments and zip() drives zero uploads).
         if prepared:
@@ -1437,21 +1443,62 @@ class _BaseClient:
         resp = self._post(f"/task-groups/{group.group_id}/cancel", body, headers) or {}
         return GroupCancelResult(canceled=resp.get("canceled", 0), skipped=resp.get("skipped", 0))
 
-    def _post(self, path: str, body: dict, headers: dict | None = None) -> dict | None:
+    # Retry budget for the create endpoints: 1+2+4+8+16 = ~31s of backoff
+    # across 6 attempts, comfortably outlasting a managed-Postgres failover.
+    # Only creates opt in (retry=True) — they carry an idempotency key, so a
+    # resend is replayed by the backend, never applied twice.
+    _RETRY_MAX_ATTEMPTS = 6
+    _RETRY_BASE_DELAY = 1.0
+    _RETRY_MAX_DELAY = 16.0
+
+    @staticmethod
+    def _mint_idempotency_key() -> str:
+        return str(uuid.uuid4())
+
+    @classmethod
+    def _retry_delay(cls, attempt: int, retry_after: str | None) -> float:
+        if retry_after is not None:
+            try:
+                return min(max(float(retry_after), 0.0), cls._RETRY_MAX_DELAY)
+            except ValueError:
+                pass
+        return min(cls._RETRY_BASE_DELAY * 2 ** (attempt - 1), cls._RETRY_MAX_DELAY)
+
+    @staticmethod
+    def _is_idempotency_in_flight(payload: str) -> bool:
+        try:
+            return json.loads(payload).get("error") == "idempotency_in_flight"
+        except (ValueError, AttributeError):
+            return False
+
+    def _post(self, path: str, body: dict, headers: dict | None = None, *,
+              retry: bool = False) -> dict | None:
         url = f"{self._base}{path}"
         data = json.dumps(body).encode("utf-8")
         req_headers = {"Content-Type": "application/json"}
         if headers:
             req_headers.update(headers)
-        req = urllib.request.Request(url, data=data, headers=req_headers, method="POST")
-        try:
-            with urllib.request.urlopen(req) as resp:
-                resp_body = resp.read().decode("utf-8")
-                if resp_body:
-                    return json.loads(resp_body)
-                return None
-        except urllib.error.HTTPError as e:
-            raise ApiError(e.code, e.read().decode("utf-8")) from e
+        attempt = 0
+        while True:
+            attempt += 1
+            req = urllib.request.Request(url, data=data, headers=req_headers, method="POST")
+            try:
+                with urllib.request.urlopen(req) as resp:
+                    resp_body = resp.read().decode("utf-8")
+                    if resp_body:
+                        return json.loads(resp_body)
+                    return None
+            except urllib.error.HTTPError as e:
+                payload = e.read().decode("utf-8")
+                retryable = e.code == 503 or (e.code == 409 and self._is_idempotency_in_flight(payload))
+                if not (retry and retryable) or attempt >= self._RETRY_MAX_ATTEMPTS:
+                    raise ApiError(e.code, payload) from e
+                time.sleep(self._retry_delay(attempt, e.headers.get("Retry-After")))
+            except urllib.error.URLError as e:
+                # Network-level failure (connection refused/reset, DNS).
+                if not retry or attempt >= self._RETRY_MAX_ATTEMPTS:
+                    raise
+                time.sleep(self._retry_delay(attempt, None))
 
     def _post_empty(self, path: str, headers: dict | None = None) -> dict | None:
         """POST with no request body — for the attachment lifecycle endpoints

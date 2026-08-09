@@ -39,7 +39,7 @@ TASK_B = GROUP_RESPONSE["instances"][1]["taskId"]
 
 def make_group(response=GROUP_RESPONSE):
     client = Client("localhost", 8000, ssl=False, api_token="tok")
-    client._post = lambda path, body, headers=None: response
+    client._post = lambda path, body, headers=None, **kwargs: response
 
     async def _noop():
         return None
