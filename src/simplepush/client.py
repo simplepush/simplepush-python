@@ -1036,7 +1036,7 @@ def _wrap_reply_location(loc: dict | None, marker, decryptor) -> Location | None
     )
 
 
-def _wrap_reply(ev: Event, decryptor, files) -> "Reply | SubtaskCanceled | TaskDeclinedByRecipient":
+def _wrap_reply(ev: Event, decryptor, files) -> "Reply | SubtaskCanceled | TaskDeclinedByRecipient | SubtaskDeclinedByRecipient | SubtaskDeclined":
     # A subtask reply stream also wants its own cancel (scoped terminal).
     if ev.data_type == _SUBTASK_CANCELED:
         return _subtask_canceled_marker(ev, decryptor)
@@ -1113,7 +1113,7 @@ def _wrap_uploads(raw_uploads, marker, decryptor, files) -> list[Upload]:
             if (w := _wrap_upload(u, marker, decryptor, files)) is not None]
 
 
-def _wrap_input(ev: Event, decryptor, files) -> "InputEvent | TaskCompleted | SubtaskCompleted | SubtaskCanceled | TaskDeclinedByRecipient":
+def _wrap_input(ev: Event, decryptor, files) -> "InputEvent | TaskCompleted | SubtaskCompleted | SubtaskCanceled | TaskDeclinedByRecipient | SubtaskDeclinedByRecipient | SubtaskDeclined":
     """Wrap a task OR subtask input event. The completion events become the
     dedicated terminal markers; the rest become `InputEvent`."""
     data = ev.data
