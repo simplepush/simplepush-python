@@ -189,13 +189,19 @@ def _now_iso() -> str:
 
 
 async def _open_ws(url: str, headers: dict[str, str] | None = None):
-    """Open a WebSocket, tolerating the websockets 12 -> 13 header-kwarg rename."""
+    """Open a WebSocket, tolerating the websockets 12 -> 13 header-kwarg rename.
+
+    close_timeout: the server side doesn't always answer the close frame, and
+    the library default then blocks `aclose()` for 10s waiting for it. The
+    caller is done with the connection — allow a short grace for a clean
+    handshake, then let the library abort the transport (mirrors the TS SDK's
+    1s force-terminate in ws.ts)."""
     if not headers:
-        return await websockets.connect(url)
+        return await websockets.connect(url, close_timeout=1.0)
     try:
-        return await websockets.connect(url, additional_headers=headers)
+        return await websockets.connect(url, additional_headers=headers, close_timeout=1.0)
     except TypeError:
-        return await websockets.connect(url, extra_headers=headers)
+        return await websockets.connect(url, extra_headers=headers, close_timeout=1.0)
 
 
 @dataclass(frozen=True, slots=True)
