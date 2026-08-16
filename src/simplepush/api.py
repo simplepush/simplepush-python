@@ -805,6 +805,8 @@ class _BaseClient:
                 title = encrypt(title, dk.symmetric_key)
             if content is not None:
                 content = encrypt(content, dk.symmetric_key)
+            if tag is not None:
+                tag = encrypt(tag, dk.symmetric_key)
             for inp in input_dicts:
                 if inp.get("description") is not None:
                     inp["description"] = encrypt(inp["description"], dk.symmetric_key)
@@ -832,6 +834,8 @@ class _BaseClient:
                 title = encrypt(title, key)
             if content is not None:
                 content = encrypt(content, key)
+            if tag is not None:
+                tag = encrypt(tag, key)
             for inp in input_dicts:
                 if inp.get("description") is not None:
                     inp["description"] = encrypt(inp["description"], key)
@@ -1021,6 +1025,8 @@ class _BaseClient:
                 title = encrypt(title, dk.symmetric_key)
             if content is not None:
                 content = encrypt(content, dk.symmetric_key)
+            if tag is not None:
+                tag = encrypt(tag, dk.symmetric_key)
             if choice_options is not None:
                 choice_options = [encrypt(opt, dk.symmetric_key) for opt in choice_options]
             if action_defs is not None:
@@ -1043,6 +1049,8 @@ class _BaseClient:
                 title = encrypt(title, key)
             if content is not None:
                 content = encrypt(content, key)
+            if tag is not None:
+                tag = encrypt(tag, key)
             if choice_options is not None:
                 choice_options = [encrypt(opt, key) for opt in choice_options]
             if action_defs is not None:
