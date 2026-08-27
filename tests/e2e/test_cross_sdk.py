@@ -12,7 +12,7 @@ import pytest
 
 pytest.importorskip("nacl", reason="crypto extra required: pip install 'simplepush[crypto]'")
 
-from simplepush import Client, derive_key, looks_like_ciphertext  # noqa: E402
+from simplepush import Client, derive_key  # noqa: E402
 from simplepush.crypto import decrypt  # noqa: E402  (bare `simplepush.decrypt` is shadowed by the submodule)
 
 
@@ -50,7 +50,7 @@ def test_python_encrypted_send_decrypts_in_js(conn, js_helper):
     assert out["decrypted"], "JS keyring cannot read a python send"
 
 
-def test_wire_shape_parity_for_encrypted_tagged_sends(conn, sender_read, js_helper):
+def test_wire_shape_parity_for_encrypted_tagged_sends(conn, sender_read, password_salt, js_helper):
     """Send the same logical task from both SDKs; the at-rest payloads must
     have the same shape AND classify identically as ciphertext/plaintext per
     field. Catches one-sided encryption or naming drift mechanically."""
@@ -62,18 +62,23 @@ def test_wire_shape_parity_for_encrypted_tagged_sends(conn, sender_read, js_help
     )
     out = js_helper("send-parity", PW, s)
 
-    shape_py = _shape(sender_read(py_task.task_id))
-    shape_js = _shape(sender_read(out["taskId"]))
+    key = derive_key(PW, password_salt).symmetric_key
+    shape_py = _shape(sender_read(py_task.task_id), key)
+    shape_js = _shape(sender_read(out["taskId"]), key)
     assert shape_py == shape_js, f"\npython: {shape_py}\njs:     {shape_js}"
 
 
 PARITY_FIELDS = ("title", "content", "tag", "contentFormat", "autoCommit", "inputs")
 
 
-def _shape(read: dict):
+def _shape(read: dict, key: bytes):
     def classify(v):
         if isinstance(v, str):
-            return "enc" if looks_like_ciphertext(v) else "plain"
+            try:
+                decrypt(v, key)
+                return "enc"
+            except Exception:
+                return "plain"
         if isinstance(v, dict):
             return {k: classify(x) for k, x in sorted(v.items()) if x is not None}
         if isinstance(v, list):

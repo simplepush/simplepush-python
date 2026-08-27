@@ -38,7 +38,8 @@ from ._extras import CRYPTO_HINT, MissingCryptoExtra
 _CRYPTO_NAMES = (
     "Decryptor", "OrgDecryptor", "Keyring", "DerivedKey",
     "derive_key", "encrypt", "decrypt", "key_fingerprint",
-    "try_decrypt_event_data", "looks_like_ciphertext",
+    "try_decrypt_event_data", "DecryptedWire",
+    "decrypt_task_payload", "decrypt_task_summary", "decrypt_submission", "decrypt_event",
 )
 
 try:
@@ -46,13 +47,17 @@ try:
         Decryptor, OrgDecryptor, Keyring, DerivedKey,
         derive_key, encrypt, decrypt, key_fingerprint,
     )
-    from .decrypt import try_decrypt_event_data, looks_like_ciphertext
+    from .decrypt import (
+        try_decrypt_event_data, DecryptedWire,
+        decrypt_task_payload, decrypt_task_summary, decrypt_submission, decrypt_event,
+    )
     # Literal list (not `list(_CRYPTO_NAMES)`) so static checkers can follow
     # the export list; keep it in sync with _CRYPTO_NAMES above.
     __all__ += [
         "Decryptor", "OrgDecryptor", "Keyring", "DerivedKey",
         "derive_key", "encrypt", "decrypt", "key_fingerprint",
-        "try_decrypt_event_data", "looks_like_ciphertext",
+        "try_decrypt_event_data", "DecryptedWire",
+        "decrypt_task_payload", "decrypt_task_summary", "decrypt_submission", "decrypt_event",
     ]
 except MissingCryptoExtra:
     # pynacl is absent: keep the crypto names out of the namespace (and out of
