@@ -188,12 +188,13 @@ def decrypt_task_payload(value: Any, keyring) -> DecryptedWire:
 
 
 def decrypt_task_summary(value: Any, keyring) -> DecryptedWire:
-    """A task index / group roster row: ``title`` is its only sealed field."""
+    """A task index / group roster row: ``title`` and ``tag`` are its sealed fields."""
     st = _State()
     out = copy.deepcopy(value)
     if isinstance(out, dict):
         marker = _marker_of(out.pop("encryption", None))
         _dec_field(out, "title", marker, keyring, st)
+        _dec_field(out, "tag", marker, keyring, st)
     return DecryptedWire(out, st.undecryptable)
 
 

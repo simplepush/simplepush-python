@@ -110,11 +110,13 @@ class DecryptWireTest(unittest.TestCase):
 
     def test_summary_title_only(self):
         out = decrypt_task_summary(
-            {"taskId": "tsk_s", "title": self.e("Sealed title"), "status": "pending", "recipients": [], "subtasks": {}, "inputs": ["text"], "encryption": MARKER},
+            {"taskId": "tsk_s", "title": self.e("Sealed title"), "tag": self.e("safety"), "topic": "alerts", "status": "pending", "recipients": [], "subtasks": {}, "inputs": ["text"], "encryption": MARKER},
             self.ring,
         )
         self.assertEqual(out.undecryptable, 0)
         self.assertEqual(out.value["title"], "Sealed title")
+        self.assertEqual(out.value["tag"], "safety")
+        self.assertEqual(out.value["topic"], "alerts")
         self.assertEqual(out.value["inputs"], ["text"])
 
     def test_submission_body_and_location(self):
