@@ -372,9 +372,10 @@ class CancelReason(str, Enum):
 
 
 class ContentFormat(str, Enum):
-    """How recipients render a task/notification `content` body (the
-    `content_format=` argument to send methods). Governs `content` only;
-    titles are always plain. The marker is sent as plaintext (never
+    """How recipients render a task or subtask `content` body (the
+    `content_format=` argument to `send_task` / `append`). Governs `content`
+    only; titles are always plain. Notifications have no format marker: a
+    push always shows its body as plain text. The marker is sent as plaintext (never
     encrypted). Members are `str`, so they serialize directly and compare
     equal to their wire value (e.g. ``ContentFormat.MARKDOWN == "markdown"``).
     """
@@ -684,7 +685,6 @@ class _BaseClient:
         password: str | None = None,
         tag: str | None = None,
         critical: bool = False,
-        content_format: ContentFormat | Literal["plain", "markdown"] | None = None,
         shared: bool = False,
     ) -> "Notification | NotificationGroup":
         """Send a notification and return a handle to its event stream.
@@ -751,8 +751,7 @@ class _BaseClient:
             title=title, content=content, input=input,
             image=image, audio=audio,
             password=password if password is not None else self._send_password(topic),
-            tag=tag, critical=critical,
-            content_format=content_format, shared=shared,
+            tag=tag, critical=critical, shared=shared,
         )
 
     def _create_task(self, *, topic=None, member=None, broadcast=False,
@@ -966,7 +965,7 @@ class _BaseClient:
 
     def _create_notification(self, *, topic=None, member=None, broadcast=False,
                              title=None, content=None, input=None, image=None, audio=None,
-                             password=None, tag=None, critical=False, content_format=None,
+                             password=None, tag=None, critical=False,
                              shared=False) -> "Notification | NotificationGroup":
         if not content and input is None:
             raise ValueError("Either content or an input must be provided")
@@ -1087,8 +1086,6 @@ class _BaseClient:
             payload["actionInput"] = {"actions": action_defs}
         if critical:
             payload["critical"] = critical
-        if content_format is not None:
-            payload["contentFormat"] = content_format.value if isinstance(content_format, ContentFormat) else content_format
         if encryption_dict is not None:
             payload["encryption"] = encryption_dict
         if shared:

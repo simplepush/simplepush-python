@@ -62,8 +62,9 @@ form at once (by default each filled input arrives as an intermediate
 `InputEvent`, then the terminal `TaskCompleted` carries the full committed
 set); `reply=ReplyMode.STICKY` (or `"one-shot"` / `"one-time-per-user"`) shows
 recipients an in-thread reply composer (collect via `replies()`);
-`content_format=ContentFormat.MARKDOWN` renders `content` as Markdown;
-`critical=True` sends an iOS Critical Alert.
+`content_format=ContentFormat.MARKDOWN` renders a task's `content` as
+Markdown (notifications are always plain); `critical=True` sends an iOS
+Critical Alert.
 
 A task can have **subtasks** appended to its chain. A subtask inherits the
 parent's recipients and encryption (no target, no password); its `inputs()` /
