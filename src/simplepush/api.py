@@ -591,7 +591,7 @@ class _BaseClient:
         inputs: list[InputType] | None = None,
         links: list[str] | None = None,
         files: "list[str | os.PathLike] | None" = None,
-        auto_commit: bool = True,
+        auto_commit: bool = False,
         password: str | None = None,
         tag: str | None = None,
         critical: bool = False,
@@ -631,7 +631,8 @@ class _BaseClient:
                    Each file is read fully into memory, so this is unsuited to
                    very large files. Uploaded after the task is created; an
                    upload that fails is marked failed without failing the send.
-            auto_commit: Whether to auto-commit when all required inputs are fulfilled.
+            auto_commit: Default False: the task renders as a form with one
+                Submit for all inputs. True commits each input as it is filled.
             password: Optional password to encrypt body fields with. Requires a
                       topic (used as the salt for key derivation). Falls back to
                       the client's default `password` when omitted. Not accepted
@@ -757,7 +758,7 @@ class _BaseClient:
     def _create_task(self, *, topic=None, member=None, broadcast=False,
                      title=None, content=None, inputs=None, links=None,
                      files=None,
-                     auto_commit=True, password=None, tag=None, critical=False,
+                     auto_commit=False, password=None, tag=None, critical=False,
                      reply=None, content_format=None, shared=False,
                      expires_at=None) -> "Task | TaskGroup":
         if not content and not inputs:
@@ -1213,7 +1214,7 @@ class _BaseClient:
 
     def _build_subtask_data(self, send_key, *, title=None, content=None, inputs=None,
                             links=None, files=None,
-                            auto_commit=True, critical=False,
+                            auto_commit=False, critical=False,
                             reply=None, content_format=None) -> "tuple[dict, list]":
         """Build the (encrypted) `data` dict of a subtask append plus the
         prepared local attachments awaiting upload — shared by the single-task
@@ -1318,7 +1319,7 @@ class _BaseClient:
 
     def _append_subtask(self, task, *, title=None, content=None, inputs=None,
                         links=None, files=None,
-                        auto_commit=True, critical=False,
+                        auto_commit=False, critical=False,
                         reply=None, content_format=None) -> Subtask:
         if not task.append_token:
             raise RuntimeError("this task has no append token; cannot append a subtask")
@@ -1355,7 +1356,7 @@ class _BaseClient:
 
     def _append_subtasks_to_group(self, group, *, instances=None, title=None,
                                   content=None, inputs=None, links=None, files=None,
-                                  auto_commit=True, critical=False,
+                                  auto_commit=False, critical=False,
                                   reply=None, content_format=None) -> "list[Subtask]":
         """Append one subtask per member instance to a task group's chains,
         atomically, via the group append token. `instances` (task ids) restricts
