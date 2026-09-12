@@ -683,6 +683,7 @@ class _BaseClient:
         input: NotificationInput | None = None,
         image: "str | os.PathLike | None" = None,
         audio: "str | os.PathLike | None" = None,
+        link: str | None = None,
         password: str | None = None,
         tag: str | None = None,
         critical: bool = False,
@@ -725,6 +726,10 @@ class _BaseClient:
             audio: Optional single audio clip (URL or local path), like `image`.
                    Plays inline on iOS; Android has no inline audio. Mutually
                    exclusive with `image` (a notification shows at most one media).
+            link: Optional URL shown as an "Open link" button on the push when
+                  the notification has no input. Any scheme: an https URL opens
+                  the browser, an app's deep link (`unifi-protect://...`) opens
+                  that app.
             password: Optional password to encrypt body fields with. Requires a
                       topic (used as the salt for key derivation). Falls back to
                       the client's default `password` when omitted. Not accepted
@@ -750,7 +755,7 @@ class _BaseClient:
         return self._create_notification(
             topic=topic, member=member, broadcast=broadcast,
             title=title, content=content, input=input,
-            image=image, audio=audio,
+            image=image, audio=audio, link=link,
             password=password if password is not None else self._send_password(topic),
             tag=tag, critical=critical, shared=shared,
         )
@@ -966,7 +971,7 @@ class _BaseClient:
 
     def _create_notification(self, *, topic=None, member=None, broadcast=False,
                              title=None, content=None, input=None, image=None, audio=None,
-                             password=None, tag=None, critical=False,
+                             link=None, password=None, tag=None, critical=False,
                              shared=False) -> "Notification | NotificationGroup":
         if not content and input is None:
             raise ValueError("Either content or an input must be provided")
@@ -1029,6 +1034,8 @@ class _BaseClient:
                 tag = encrypt(tag, dk.symmetric_key)
             if choice_options is not None:
                 choice_options = [encrypt(opt, dk.symmetric_key) for opt in choice_options]
+            if link is not None:
+                link = encrypt(link, dk.symmetric_key)
             if action_defs is not None:
                 # Key AND label, exactly like a task's ActionsInput: the key
                 # usually carries the same meaning as the label ("approve"), so
@@ -1053,6 +1060,8 @@ class _BaseClient:
                 tag = encrypt(tag, key)
             if choice_options is not None:
                 choice_options = [encrypt(opt, key) for opt in choice_options]
+            if link is not None:
+                link = encrypt(link, key)
             if action_defs is not None:
                 for a in action_defs:   # key AND label, as above
                     a["key"] = encrypt(a["key"], key)
@@ -1069,6 +1078,8 @@ class _BaseClient:
         }
         if media_dict is not None:
             payload["media"] = media_dict
+        if link is not None:
+            payload["link"] = link
         if topic is not None:
             payload["topic"] = topic
         if member is not None:

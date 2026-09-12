@@ -127,6 +127,25 @@ class SelfSendTest(unittest.TestCase):
         self.assertEqual(body["encryption"]["type"], "personal")
         self.assertNotEqual(body["content"], "ping")
 
+    def test_notification_link_rides_the_body_plaintext(self):
+        calls = []
+        client = make_client([NOTIFICATION_RESPONSE], calls)
+        client.send_notification(content="motion", link="unifi-protect://protect/devices/abc")
+
+        _, body, _ = calls[0]
+        self.assertEqual(body["link"], "unifi-protect://protect/devices/abc")
+
+    def test_notification_link_is_sealed_when_encrypted(self):
+        calls = []
+        client = make_client([NOTIFICATION_RESPONSE], calls, passwords="my-account-pw")
+        client.send_notification(content="motion", link="unifi-protect://protect/devices/abc")
+
+        _, body, _ = calls[0]
+        self.assertNotEqual(body["link"], "unifi-protect://protect/devices/abc")
+        from simplepush.crypto import decrypt
+        dk = client._self_send_key()
+        self.assertEqual(decrypt(body["link"], dk.symmetric_key), "unifi-protect://protect/devices/abc")
+
     def test_explicit_password_without_topic_is_rejected(self):
         calls = []
         client = make_client([TASK_RESPONSE], calls)
