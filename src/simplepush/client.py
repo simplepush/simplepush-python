@@ -1471,7 +1471,7 @@ class Task:
     def append(self, *, title: str | None = None, content: str | None = None,
                inputs=None, links: list[str] | None = None,
                files: "list[str | os.PathLike] | None" = None,
-               auto_commit: bool = True, critical: bool = False,
+               auto_commit: bool = False, critical: bool = False,
                reply: "ReplyMode | Literal['one-shot', 'sticky', 'one-time-per-user'] | None" = None,
                content_format: "ContentFormat | Literal['plain', 'markdown'] | None" = None) -> "Subtask":
         """Append a subtask to this task's chain and return a `Subtask` handle.
@@ -1643,7 +1643,7 @@ class TaskGroup:
                inputs=None, links: "list[str] | None" = None,
                files: "list[str | os.PathLike] | None" = None,
                instances: "list[str | Task] | None" = None,
-               auto_commit: bool = True, critical: bool = False,
+               auto_commit: bool = False, critical: bool = False,
                reply: "ReplyMode | Literal['one-shot', 'sticky', 'one-time-per-user'] | None" = None,
                content_format: "ContentFormat | Literal['plain', 'markdown'] | None" = None) -> "list[Subtask]":
         """Append a subtask to every member instance's chain atomically — or
