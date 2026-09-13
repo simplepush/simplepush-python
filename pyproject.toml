@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "simplepush"
-version = "3.6.0"
+version = "3.6.1"
 description = "Python client for Simplepush (tasks, notifications, events, end-to-end encryption)."
 readme = "README.md"
 license = { file = "LICENSE" }
