@@ -15,7 +15,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from simplepush import Client, Notification, OrgClient, Task  # noqa: E402
+from simplepush import Client, Notification, NotificationTextInput, OrgClient, Task  # noqa: E402
 
 
 TASK_RESPONSE = {
@@ -134,6 +134,14 @@ class SelfSendTest(unittest.TestCase):
 
         _, body, _ = calls[0]
         self.assertEqual(body["link"], "unifi-protect://protect/devices/abc")
+
+    def test_notification_link_with_input_is_rejected(self):
+        calls = []
+        client = make_client([NOTIFICATION_RESPONSE], calls)
+        with self.assertRaises(ValueError):
+            client.send_notification(content="motion", link="https://example.com",
+                                     input=NotificationTextInput())
+        self.assertEqual(calls, [])
 
     def test_notification_link_is_sealed_when_encrypted(self):
         calls = []

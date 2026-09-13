@@ -726,10 +726,10 @@ class _BaseClient:
             audio: Optional single audio clip (URL or local path), like `image`.
                    Plays inline on iOS; Android has no inline audio. Mutually
                    exclusive with `image` (a notification shows at most one media).
-            link: Optional URL shown as an "Open link" button on the push when
-                  the notification has no input. Any scheme: an https URL opens
-                  the browser, an app's deep link (`unifi-protect://...`) opens
-                  that app.
+            link: Optional URL shown as an "Open link" button on the push. Any
+                  scheme: an https URL opens the browser, an app's deep link
+                  (`unifi-protect://...`) opens that app. Mutually exclusive
+                  with `input` (the input's buttons take the action slots).
             password: Optional password to encrypt body fields with. Requires a
                       topic (used as the salt for key derivation). Falls back to
                       the client's default `password` when omitted. Not accepted
@@ -995,6 +995,8 @@ class _BaseClient:
             _validate_actions(input.actions)
         if image is not None and audio is not None:
             raise ValueError("a notification can carry at most one media attachment (image or audio, not both)")
+        if link is not None and input is not None:
+            raise ValueError("a notification carries either an input or a link, not both: the input's buttons take the action slots, so the link would never be shown")
 
         # A notification carries at most one input, sent as `textInput {}` XOR
         # `choiceInput {options}` XOR `actionInput {actions}`. For actions, both
