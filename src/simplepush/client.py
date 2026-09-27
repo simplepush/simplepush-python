@@ -1472,6 +1472,7 @@ class Task:
                inputs=None, links: list[str] | None = None,
                files: "list[str | os.PathLike] | None" = None,
                auto_commit: bool = False, critical: bool = False,
+               priority: int | None = None, critical_volume: float | None = None,
                reply: "ReplyMode | Literal['one-shot', 'sticky', 'one-time-per-user'] | None" = None,
                content_format: "ContentFormat | Literal['plain', 'markdown'] | None" = None) -> "Subtask":
         """Append a subtask to this task's chain and return a `Subtask` handle.
@@ -1486,7 +1487,7 @@ class Task:
         return self._client._append_subtask(
             self, title=title, content=content, inputs=inputs,
             links=links, files=files,
-            auto_commit=auto_commit, critical=critical, reply=reply,
+            auto_commit=auto_commit, critical=critical, priority=priority, critical_volume=critical_volume, reply=reply,
             content_format=content_format,
         )
 
@@ -1644,6 +1645,7 @@ class TaskGroup:
                files: "list[str | os.PathLike] | None" = None,
                instances: "list[str | Task] | None" = None,
                auto_commit: bool = False, critical: bool = False,
+               priority: int | None = None, critical_volume: float | None = None,
                reply: "ReplyMode | Literal['one-shot', 'sticky', 'one-time-per-user'] | None" = None,
                content_format: "ContentFormat | Literal['plain', 'markdown'] | None" = None) -> "list[Subtask]":
         """Append a subtask to every member instance's chain atomically — or
@@ -1661,7 +1663,7 @@ class TaskGroup:
             ids = [t.task_id if isinstance(t, Task) else t for t in instances]
         return self._client._append_subtasks_to_group(
             self, instances=ids, title=title, content=content, inputs=inputs,
-            links=links, files=files, auto_commit=auto_commit, critical=critical,
+            links=links, files=files, auto_commit=auto_commit, critical=critical, priority=priority, critical_volume=critical_volume,
             reply=reply, content_format=content_format,
         )
 

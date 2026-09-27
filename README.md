@@ -63,8 +63,9 @@ form at once (by default each filled input arrives as an intermediate
 set); `reply=ReplyMode.STICKY` (or `"one-shot"` / `"one-time-per-user"`) shows
 recipients an in-thread reply composer (collect via `replies()`);
 `content_format=ContentFormat.MARKDOWN` renders a task's `content` as
-Markdown (notifications are always plain); `critical=True` sends an iOS
-Critical Alert.
+Markdown (notifications are always plain); `priority=` sets how loudly the
+push interrupts, 1 (minimal) to 5 (critical; sounds even on a muted phone),
+default 3, with `critical_volume=` (0 to 1) for level 5 on iOS.
 
 A task can have **subtasks** appended to its chain. A subtask inherits the
 parent's recipients and encryption (no target, no password); its `inputs()` /

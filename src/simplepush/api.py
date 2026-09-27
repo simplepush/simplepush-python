@@ -62,6 +62,27 @@ from .client import (
 
 # --- Wire serialization helpers ---
 
+def _priority_wire(priority, critical, critical_volume) -> dict:
+    """The `priority` / `criticalVolume` fields of a create request. `priority`
+    is 1 (minimal) to 5 (critical), absent = 3; the deprecated `critical` flag
+    means 5 when no priority is given. `critical_volume` (0 < v <= 1) is the
+    iOS critical alert volume and is only valid with level 5."""
+    level = priority if priority is not None else (5 if critical else None)
+    if level is not None and (not isinstance(level, int) or isinstance(level, bool) or not 1 <= level <= 5):
+        raise ValueError("priority must be an integer between 1 and 5")
+    if critical_volume is not None:
+        if level != 5:
+            raise ValueError("critical_volume applies to priority 5 only")
+        if not 0 < critical_volume <= 1:
+            raise ValueError("critical_volume must be greater than 0 and at most 1")
+    out: dict = {}
+    if level is not None:
+        out["priority"] = level
+    if critical_volume is not None:
+        out["criticalVolume"] = critical_volume
+    return out
+
+
 def _expires_at_wire(value) -> str:
     """Serialize a task deadline to wire ISO-8601. A naive datetime is
     rejected rather than guessed at — the server compares against UTC."""
@@ -595,6 +616,8 @@ class _BaseClient:
         password: str | None = None,
         tag: str | None = None,
         critical: bool = False,
+        priority: int | None = None,
+        critical_volume: float | None = None,
         reply: ReplyMode | Literal["one-shot", "sticky", "one-time-per-user"] | None = None,
         content_format: ContentFormat | Literal["plain", "markdown"] | None = None,
         shared: bool = False,
@@ -667,7 +690,7 @@ class _BaseClient:
             links=links, files=files,
             auto_commit=auto_commit,
             password=password if password is not None else self._send_password(topic),
-            tag=tag, critical=critical, reply=reply,
+            tag=tag, critical=critical, priority=priority, critical_volume=critical_volume, reply=reply,
             content_format=content_format, shared=shared,
             expires_at=expires_at,
         )
@@ -687,6 +710,8 @@ class _BaseClient:
         password: str | None = None,
         tag: str | None = None,
         critical: bool = False,
+        priority: int | None = None,
+        critical_volume: float | None = None,
         shared: bool = False,
     ) -> "Notification | NotificationGroup":
         """Send a notification and return a handle to its event stream.
@@ -757,13 +782,13 @@ class _BaseClient:
             title=title, content=content, input=input,
             image=image, audio=audio, link=link,
             password=password if password is not None else self._send_password(topic),
-            tag=tag, critical=critical, shared=shared,
+            tag=tag, critical=critical, priority=priority, critical_volume=critical_volume, shared=shared,
         )
 
     def _create_task(self, *, topic=None, member=None, broadcast=False,
                      title=None, content=None, inputs=None, links=None,
                      files=None,
-                     auto_commit=False, password=None, tag=None, critical=False,
+                     auto_commit=False, password=None, tag=None, critical=False, priority=None, critical_volume=None,
                      reply=None, content_format=None, shared=False,
                      expires_at=None) -> "Task | TaskGroup":
         if not content and not inputs:
@@ -893,8 +918,7 @@ class _BaseClient:
             body["title"] = title
         if content is not None:
             body["content"] = content
-        if critical:
-            body["critical"] = critical
+        body.update(_priority_wire(priority, critical, critical_volume))
         if reply is not None:
             body["reply"] = reply.value if isinstance(reply, ReplyMode) else reply
         if content_format is not None:
@@ -971,7 +995,7 @@ class _BaseClient:
 
     def _create_notification(self, *, topic=None, member=None, broadcast=False,
                              title=None, content=None, input=None, image=None, audio=None,
-                             link=None, password=None, tag=None, critical=False,
+                             link=None, password=None, tag=None, critical=False, priority=None, critical_volume=None,
                              shared=False) -> "Notification | NotificationGroup":
         if not content and input is None:
             raise ValueError("Either content or an input must be provided")
@@ -1098,8 +1122,7 @@ class _BaseClient:
             payload["choiceInput"] = {"options": choice_options}
         elif action_defs is not None:
             payload["actionInput"] = {"actions": action_defs}
-        if critical:
-            payload["critical"] = critical
+        payload.update(_priority_wire(priority, critical, critical_volume))
         if encryption_dict is not None:
             payload["encryption"] = encryption_dict
         if shared:
@@ -1227,7 +1250,7 @@ class _BaseClient:
 
     def _build_subtask_data(self, send_key, *, title=None, content=None, inputs=None,
                             links=None, files=None,
-                            auto_commit=False, critical=False,
+                            auto_commit=False, critical=False, priority=None, critical_volume=None,
                             reply=None, content_format=None) -> "tuple[dict, list]":
         """Build the (encrypted) `data` dict of a subtask append plus the
         prepared local attachments awaiting upload — shared by the single-task
@@ -1320,8 +1343,7 @@ class _BaseClient:
             data["title"] = title
         if content is not None:
             data["content"] = content
-        if critical:
-            data["critical"] = critical
+        data.update(_priority_wire(priority, critical, critical_volume))
         if reply is not None:
             data["reply"] = reply.value if isinstance(reply, ReplyMode) else reply
         if content_format is not None:
@@ -1332,14 +1354,14 @@ class _BaseClient:
 
     def _append_subtask(self, task, *, title=None, content=None, inputs=None,
                         links=None, files=None,
-                        auto_commit=False, critical=False,
+                        auto_commit=False, critical=False, priority=None, critical_volume=None,
                         reply=None, content_format=None) -> Subtask:
         if not task.append_token:
             raise RuntimeError("this task has no append token; cannot append a subtask")
         # Inherit the parent's key (subtask encryption must match the chain's).
         data, prepared = self._build_subtask_data(
             task._send_key, title=title, content=content, inputs=inputs,
-            links=links, files=files, auto_commit=auto_commit, critical=critical,
+            links=links, files=files, auto_commit=auto_commit, critical=critical, priority=priority, critical_volume=critical_volume,
             reply=reply, content_format=content_format,
         )
 
@@ -1369,7 +1391,7 @@ class _BaseClient:
 
     def _append_subtasks_to_group(self, group, *, instances=None, title=None,
                                   content=None, inputs=None, links=None, files=None,
-                                  auto_commit=False, critical=False,
+                                  auto_commit=False, critical=False, priority=None, critical_volume=None,
                                   reply=None, content_format=None) -> "list[Subtask]":
         """Append one subtask per member instance to a task group's chains,
         atomically, via the group append token. `instances` (task ids) restricts
@@ -1381,7 +1403,7 @@ class _BaseClient:
             raise RuntimeError("this task group has no append token; cannot append a subtask")
         data, prepared = self._build_subtask_data(
             group._send_key, title=title, content=content, inputs=inputs,
-            links=links, files=files, auto_commit=auto_commit, critical=critical,
+            links=links, files=files, auto_commit=auto_commit, critical=critical, priority=priority, critical_volume=critical_volume,
             reply=reply, content_format=content_format,
         )
 
