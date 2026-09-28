@@ -49,6 +49,10 @@ from urllib.parse import quote
 import websockets
 import websockets.exceptions
 
+# Seconds an HTTP request waits for the connection or the next data before it
+# fails. It bounds each wait, not a whole upload or download.
+_HTTP_TIMEOUT = 30
+
 if TYPE_CHECKING:
     # Type-only: api.py imports from this module at runtime, so a real import
     # here would be circular. The enum-or-Literal unions below give static
@@ -276,7 +280,7 @@ class _DownloadTransport:
         url = f"{self._base}/{scope}/{quote(str(scope_id))}/{kind}/{quote(str(file_id))}/download-url"
         req = urllib.request.Request(url, data=b"", headers=self._headers, method="POST")
         try:
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
                 body = resp.read().decode("utf-8")
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")
@@ -286,7 +290,7 @@ class _DownloadTransport:
 
     def get(self, url: str) -> bytes:
         try:
-            with urllib.request.urlopen(url) as resp:
+            with urllib.request.urlopen(url, timeout=_HTTP_TIMEOUT) as resp:
                 return resp.read()
         except urllib.error.HTTPError as e:
             raise DownloadError(f"file fetch failed: HTTP {e.code}", status_code=e.code) from e

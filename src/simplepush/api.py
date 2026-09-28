@@ -56,7 +56,7 @@ from .client import (
     Event, GroupCancelResult, InputEvent, Notification, NotificationGroup,
     NotificationGroupRecipient, RawEvents, Reply, Subtask, Submissions, Task,
     TaskGroup, TaskGroupRecipient,
-    _DownloadTransport, _FileBinder, _Hub,
+    _HTTP_TIMEOUT, _DownloadTransport, _FileBinder, _Hub,
 )
 
 
@@ -568,7 +568,7 @@ class _BaseClient:
             method="GET",
         )
         try:
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
                 info = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             raise ApiError(e.code, e.read().decode("utf-8")) from e
@@ -1524,7 +1524,7 @@ class _BaseClient:
             attempt += 1
             req = urllib.request.Request(url, data=data, headers=req_headers, method="POST")
             try:
-                with urllib.request.urlopen(req) as resp:
+                with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
                     resp_body = resp.read().decode("utf-8")
                     if resp_body:
                         return json.loads(resp_body)
@@ -1535,8 +1535,9 @@ class _BaseClient:
                 if not (retry and retryable) or attempt >= self._RETRY_MAX_ATTEMPTS:
                     raise ApiError(e.code, payload) from e
                 time.sleep(self._retry_delay(attempt, e.headers.get("Retry-After")))
-            except urllib.error.URLError as e:
-                # Network-level failure (connection refused/reset, DNS).
+            except (urllib.error.URLError, TimeoutError) as e:
+                # Network-level failure (connection refused/reset, DNS, or no
+                # response within the timeout).
                 if not retry or attempt >= self._RETRY_MAX_ATTEMPTS:
                     raise
                 time.sleep(self._retry_delay(attempt, None))
@@ -1548,7 +1549,7 @@ class _BaseClient:
         url = f"{self._base}{path}"
         req = urllib.request.Request(url, data=b"", headers=dict(headers or {}), method="POST")
         try:
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
                 resp_body = resp.read().decode("utf-8")
                 return json.loads(resp_body) if resp_body else None
         except urllib.error.HTTPError as e:
@@ -1561,7 +1562,7 @@ class _BaseClient:
         req = urllib.request.Request(url, data=data, method="PUT")
         req.add_header("Content-Type", "application/octet-stream")
         try:
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
                 resp.read()
         except urllib.error.HTTPError as e:
             raise ApiError(e.code, e.read().decode("utf-8")) from e
