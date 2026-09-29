@@ -306,6 +306,27 @@ Everything else works as on a personal `Client`: independent-mode groups (the
 member name rides on each instance's `recipient`), subtasks, streams,
 submissions, downloads.
 
+## Old app
+
+The old Simplepush app receives messages through the legacy API, addressed by
+its device key. `simplepush.legacy` sends to it:
+
+```python
+from simplepush import legacy
+
+legacy.send(key="HuxgBB", title="Garage", message="The door is open.")
+```
+
+With `password` and `salt`, title, message and attachments are encrypted for
+the old app. That needs the `legacy` extra:
+
+```bash
+pip install "simplepush[legacy]"
+```
+
+Failures raise `legacy.BadRequest` (title or message too long) or
+`legacy.UnknownError`.
+
 ## License
 
 MIT

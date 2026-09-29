@@ -47,7 +47,8 @@ classifiers = [
 # The HTTP path uses stdlib `urllib`. WebSocket events need the `websockets`
 # package. The crypto extra pulls in libsodium (`pynacl`) for Argon2id and
 # XChaCha20-Poly1305, matching the other clients' wire format; callers who only
-# want event/HTTP can install without it.
+# want event/HTTP can install without it. The legacy extra pulls in
+# `cryptography` for encrypted messages to the old app (`simplepush.legacy`).
 dependencies = [
     "websockets>=12.0",
 ]
@@ -55,6 +56,9 @@ dependencies = [
 [project.optional-dependencies]
 crypto = [
     "pynacl>=1.5.0",
+]
+legacy = [
+    "cryptography>=3.1",
 ]
 
 [project.urls]
