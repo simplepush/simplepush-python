@@ -5,11 +5,13 @@ stands in for the presign POST + S3 GET.
 Run with `python3 -m unittest discover tests` from python-library/.
 """
 
+import asyncio
 import base64
 import hashlib
 import os
 import sys
 import unittest
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -19,8 +21,11 @@ from simplepush.client import (  # noqa: E402
     Submission,
     SubmissionFile,
     SubmissionAudio,
+    Submissions,
     TextBody,
     _FileBinder,
+    _Hub,
+    _parse_iso,
     _wrap_reply_location,
     _wrap_submission,
     _wrap_upload,
@@ -498,6 +503,67 @@ class OrgEncryptedLocationTest(unittest.TestCase):
         )
         self.assertIsInstance(up, LocationUpload)
         self.assertIsNone(up.location)  # undecryptable → location degrades to None
+
+
+def _stream_event(text: str, version: int, created_at: str | None) -> Event:
+    raw = {"eventType": "SubmissionCreated", "version": version,
+           "data": {"type": "submissionCreated",
+                    "submission": {"id": f"sbm_{version}", "body": {"type": "text", "value": text}}}}
+    if created_at is not None:
+        raw["createdAt"] = created_at
+    return Event.from_raw(raw)
+
+
+class SubmissionsStreamTest(unittest.IsolatedAsyncioTestCase):
+    """Where the `submissions()` stream starts. The hub never connects: events
+    are dispatched into it by hand."""
+
+    def _hub(self) -> _Hub:
+        hub = _Hub("localhost", 8000, False, connect_path="/ws/v1/events")
+
+        async def _noop():
+            return None
+
+        hub.ensure_running = _noop
+        return hub
+
+    async def _collect(self, hub: _Hub, events: list[Event]) -> list[str]:
+        seen: list[str] = []
+
+        async def read():
+            async for sub in Submissions(hub, None, None, timeout=0.2):
+                seen.append(sub.body.text)
+
+        reader = asyncio.create_task(read())
+        await asyncio.sleep(0.02)  # the reader has attached
+        for ev in events:
+            hub._dispatch(ev)
+        await reader
+        return seen
+
+    async def test_a_backfill_for_an_earlier_send_delivers_no_earlier_submissions(self):
+        hub = self._hub()
+        # The earlier send moves the shared connection's start back to its send time.
+        hub.register_entity("tsk_00000000-0000-7000-8000-00000000000a", "2026-07-01T00:00:00Z")
+        later = (datetime.now(timezone.utc) + timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        seen = await self._collect(hub, [
+            _stream_event("before the first read", 1, "2026-07-02T00:00:00Z"),
+            _stream_event("after the first read", 2, later),
+        ])
+        self.assertEqual(seen, ["after the first read"])
+
+    async def test_a_submission_without_a_timestamp_is_delivered(self):
+        seen = await self._collect(self._hub(), [_stream_event("no timestamp", 1, None)])
+        self.assertEqual(seen, ["no timestamp"])
+
+    def test_parse_iso_reads_every_wire_shape(self):
+        utc = timezone.utc
+        self.assertEqual(_parse_iso("2026-07-03T10:00:00Z"), datetime(2026, 7, 3, 10, 0, 0, tzinfo=utc))
+        self.assertEqual(_parse_iso("2026-07-03T10:00:00.5Z"), datetime(2026, 7, 3, 10, 0, 0, 500000, tzinfo=utc))
+        self.assertEqual(_parse_iso("2026-07-03T10:00:00.123456789Z"), datetime(2026, 7, 3, 10, 0, 0, 123456, tzinfo=utc))
+        self.assertEqual(_parse_iso("2026-07-03T12:00:00+02:00"), datetime(2026, 7, 3, 10, 0, 0, tzinfo=utc))
+        with self.assertRaises(ValueError):
+            _parse_iso("t")
 
 
 if __name__ == "__main__":

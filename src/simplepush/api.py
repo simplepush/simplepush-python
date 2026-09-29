@@ -497,8 +497,9 @@ class _BaseClient:
         user content (text body + optional photo/file) with no associated task; a
         task reply without the task. Available on both `Client`
         and `OrgClient`. Body text decrypts via this client's keyring; `photo`/
-        `file` are downloadable (`read()` / `save()`). Stops after `timeout`
-        seconds of silence."""
+        `file` are downloadable (`read()` / `save()`). Delivers submissions
+        from now on: one created before the first read is skipped, by this
+        machine's clock. Stops after `timeout` seconds of silence."""
         return self._build_submissions(timeout, self._default_password)
 
     def _build_submissions(self, timeout, default_password) -> Submissions:

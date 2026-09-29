@@ -211,7 +211,9 @@ async for sub in client.submissions(timeout=300):
 `photo`/`file`/`audio` are download handles (`read()` / `save()` /
 `download_url()`); `audio` carries `duration_seconds`. `location` is inline
 decoded data (latitude, longitude, accuracy, altitude, heading, speed,
-timestamp). `timeout=` stops iteration after that many seconds of silence.
+timestamp). The stream delivers submissions from now on: one created before
+the first read is skipped, by this machine's clock. `timeout=` stops iteration
+after that many seconds of silence.
 
 Encrypted submissions are decrypted with your **personal password**
 (not a topic password). Pass it in `passwords=` (a bare string), or per call:

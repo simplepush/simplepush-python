@@ -39,6 +39,7 @@ import hashlib
 import json
 import mimetypes
 import os
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -190,6 +191,17 @@ _NOTIFICATION_TERMINAL = frozenset({"notificationCompleted"})
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_iso(ts: str) -> datetime:
+    """A wire timestamp (ISO 8601, `Z` or an offset, any number of fraction
+    digits) as an aware datetime. Raises ValueError on anything else."""
+    m = re.fullmatch(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})", ts)
+    if m is None:
+        raise ValueError(f"not an ISO 8601 timestamp: {ts!r}")
+    head, fraction, zone = m.groups()
+    micros = (fraction or "")[:6].ljust(6, "0")
+    return datetime.fromisoformat(f"{head}.{micros}{'+00:00' if zone == 'Z' else zone}")
 
 
 async def _open_ws(url: str, headers: dict[str, str] | None = None):
@@ -2057,8 +2069,10 @@ class Submissions:
     """Typed stream of `Submission`s for the client's shared feed. Submissions
     are unsolicited (no send, no per-entity demux), so this filters the whole
     feed for `submissionCreated` events and wraps each — body text decrypted via
-    the client keyring, `photo`/`file` bound as downloadable. Stops after
-    `timeout` seconds of silence (None = forever)."""
+    the client keyring, `photo`/`file` bound as downloadable. Delivers
+    submissions from now on: one created before the first read is skipped, by
+    this machine's clock. Stops after `timeout` seconds of silence (None =
+    forever)."""
 
     def __init__(self, hub: _Hub, decryptor, files, timeout: float | None = None):
         self._hub = hub
@@ -2070,6 +2084,9 @@ class Submissions:
         return self._iter()
 
     async def _iter(self):
+        # The shared connection replays from the earliest send or the last
+        # event it saw; submissions from before this point are skipped.
+        started_at = datetime.now(timezone.utc)
         await self._hub.ensure_running()
         q = self._hub.attach_raw()
         try:
@@ -2084,6 +2101,8 @@ class Submissions:
                 if isinstance(msg, _HubError):
                     raise msg.error
                 if msg.data_type == "submissionCreated":
+                    if msg.created_at is not None and _parse_iso(msg.created_at) < started_at:
+                        continue
                     yield _wrap_submission(msg, self._decryptor, self._files)
         finally:
             self._hub.detach_raw(q)
